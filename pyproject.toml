@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bfm-lh"
+version = "0.1.0"
+description = "Bayesian factorization via L_{1/2} shrinkage: unified sklearn-style interface to the JAX Gibbs sampler and CAVI"
+requires-python = ">=3.12"
+dependencies = ["jax", "numpy"]
+license = "GPL-2.0-only"
+license-files = ["LICENSE"]
+
+[project.optional-dependencies]
+plot = ["matplotlib"]
+ess = ["arviz"]
+rsp = ["optax>=0.2.8"]
+test = ["pytest", "scipy"]
+
+[tool.setuptools]
+packages = ["bfm", "bfm._gs", "bfm._vi", "bfm._rsp", "bfm._rsp.core", "bfm._rsp.kernels"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Do not write .pytest_cache / cache-probe directories into the repository:
+# the project often lives on a synced or sandboxed filesystem where such
+# private-mode directories can become inaccessible to the test process.
+addopts = "-p no:cacheprovider"
