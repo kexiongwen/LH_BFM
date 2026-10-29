@@ -467,7 +467,7 @@ def save_gs_figures(result: GSResult, output_dir: str | Path) -> list[Path]:
     ax.plot(columns, aligned_norm, marker=".", linewidth=1, label="After RSP")
     ax.set_xlabel("factor column")
     ax.set_ylabel("loading column L2 norm")
-    ax.set_title(f"Loading column norms: {name}")
+    ax.set_title("GS")
     ax.legend()
     path = output_dir / f"loading_column_norms_{name}.png"
     fig.savefig(path, dpi=150)

@@ -380,7 +380,7 @@ def save_cavi_figures(result: CAVIResult, output_dir: str | Path) -> list[Path]:
     ax.plot(columns, aligned_norm, marker=".", linewidth=1, label="After RSP")
     ax.set_xlabel("factor column")
     ax.set_ylabel("loading column L2 norm")
-    ax.set_title(f"Loading column norms: {result.name}")
+    ax.set_title("CAVI")
     ax.legend()
     path = output_dir / f"loading_column_norms_{result.name}.png"
     fig.savefig(path, dpi=150)
