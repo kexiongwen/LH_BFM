@@ -13,8 +13,9 @@ license-files = ["LICENSE"]
 
 [project.optional-dependencies]
 plot = ["matplotlib"]
-ess = ["arviz"]
+ess = ["arviz>=1.0.0"]
 rsp = ["optax>=0.2.8"]
+examples = ["matplotlib", "arviz>=1.0.0", "optax>=0.2.8", "scipy"]
 test = ["pytest", "scipy"]
 
 [tool.setuptools]

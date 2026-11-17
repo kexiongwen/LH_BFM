@@ -51,9 +51,10 @@ build of JAX first (see the JAX installation guide), then install this package.
 Optional extras:
 
 ```bash
-pip install -e ".[plot]"   # matplotlib: CaviBFM.plot_elbo
-pip install -e ".[ess]"    # arviz: ESS diagnostics
-pip install -e ".[rsp]"    # optax: RSP assignment backend for K > 7
+pip install -e ".[plot]"      # matplotlib: CaviBFM.plot_elbo
+pip install -e ".[ess]"       # ArviZ 1.x: ESS diagnostics
+pip install -e ".[rsp]"       # optax: RSP assignment backend for K > 7
+pip install -e ".[examples]"  # notebook dependencies, including SciPy
 ```
 
 The `"scipy"` RSP assignment backend needs `scipy`, which is not in the `rsp`
@@ -301,6 +302,12 @@ Notable defaults:
 - `graph=True` uses XLA command buffers on GPU and warns/falls back elsewhere.
 
 ## Examples
+
+Install all Python dependencies used by the notebooks, including SciPy:
+
+```bash
+pip install -e ".[examples]"
+```
 
 The notebooks in [`examples/`](examples/) run both estimators on the same
 synthetic data and cover factor-dimension selection, noise/covariance recovery,
