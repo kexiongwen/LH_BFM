@@ -58,6 +58,10 @@ N, P, K0 = 500, 5000, 5
 K = 50
 LINF_THRESHOLD = 0.1
 COV_SPARSITY_THRESHOLD = 1e-2
+# All 2500 retained draws are (2500, 5000, 50) and RSP was killed at the
+# 14.6 GB cgroup limit. 1600 draws were killed as well. 800 equidistant
+# draws fit and are what gibbs_alignment.json records.
+GIBBS_ALIGN_DRAWS = 800
 C_GIBBS, C_CAVI, C_TRUE, C_SHRUNK = "#2f6fd0", "#e07b39", "#b03a2e", "#c9d3df"
 
 plt.rcParams.update({
@@ -153,6 +157,15 @@ def active_columns_hpd(draws, level=0.95) -> np.ndarray:
 
 def column_numbers(mask: np.ndarray) -> list[int]:
     return [int(k) + 1 for k in np.flatnonzero(mask)]
+
+
+def equidistant_indices(n_available: int, n_keep: int) -> np.ndarray:
+    """Indices of an equidistant subset, including the first and last draws."""
+    n_available = int(n_available)
+    n_keep = min(int(n_keep), n_available)
+    if n_keep < 1:
+        raise ValueError(f"n_keep must be positive, got {n_keep}")
+    return np.unique(np.rint(np.linspace(0, n_available - 1, n_keep)).astype(np.int64))
 
 
 def savefig(fig, name: str) -> str:
@@ -562,11 +575,11 @@ def main():
     log(f"saved {draw_path} ({draw_path.stat().st_size / 1e9:.2f} GB)")
 
     align_out = ROOT / "gibbs_alignment.json"
-    log("Gibbs RSP alignment in a fresh process")
+    log(f"Gibbs RSP alignment of {GIBBS_ALIGN_DRAWS} equidistant draws in a fresh process")
     t0 = time.perf_counter()
     proc = subprocess.run(
         [sys.executable, str(Path(__file__).resolve()), "--align",
-         str(draw_path), str(align_out)],
+         str(draw_path), str(align_out), str(GIBBS_ALIGN_DRAWS)],
         check=False,
     )
     summary["gibbs_alignment_seconds"] = time.perf_counter() - t0
@@ -583,24 +596,47 @@ def main():
     log("done")
 
 
-def align_saved(src: str, dest: str) -> None:
-    """Align saved Gibbs loadings without the rest of the fitting process."""
+def align_saved(src: str, dest: str, n_keep: int = GIBBS_ALIGN_DRAWS) -> None:
+    """Align an equidistant subset of saved Gibbs loadings.
+
+    The full retained array does not fit in the 14.6 GB cgroup. Only the
+    subset is copied off the memory map before RSP runs.
+    """
     from bfm._rsp import rsp_exact
 
-    draws = np.load(src)
-    log(f"aligning draws {draws.shape} {draws.dtype}")
+    mapped = np.load(src, mmap_mode="r")
+    n_available = int(mapped.shape[0])
+    index = equidistant_indices(n_available, n_keep)
+    draws = np.array(mapped[index], dtype=np.float32, copy=True)
+    del mapped
+    gc.collect()
+    log(
+        f"aligning {draws.shape[0]} of {n_available} draws "
+        f"{draws.shape} {draws.dtype}"
+    )
     t0 = time.perf_counter()
     result = rsp_exact(draws, precision="float32", return_transforms=True)
     aligned = np.asarray(result.aligned_loadings)
     active = active_columns_hpd(aligned)
     mean = np.asarray(result.mean_loadings)
+    diagnostics = result.diagnostics
+    stop = diagnostics.get("stop_reason") if isinstance(diagnostics, dict) else str(diagnostics)
     payload = {
         "status": int(result.status_code),
-        "stop": result.diagnostics.get("stop_reason"),
+        "stop": stop,
         "iterations": int(result.n_iter),
         "loss_final": float(result.loss_final),
         "seconds": time.perf_counter() - t0,
-        "n_draws": int(draws.shape[0]),
+        "n_draws_available": n_available,
+        "n_draws_aligned": int(draws.shape[0]),
+        "draw_index_rule": "equidistant linspace over the retained draws",
+        "draw_index_first": int(index[0]),
+        "draw_index_last": int(index[-1]),
+        "reason_for_subset": (
+            "Aligning all retained draws of shape (5000, 50) was killed at "
+            "the 14.6 GB cgroup limit, as was a 1600-draw subset. "
+            f"This uses {int(draws.shape[0])} equidistant retained draws."
+        ),
         "credible_aligned": int(active.sum()),
         "credible_aligned_columns_1based": column_numbers(active),
         "column_linf_aligned": np.max(np.abs(mean), axis=0).tolist(),
@@ -612,7 +648,8 @@ def align_saved(src: str, dest: str) -> None:
 if __name__ == "__main__":
     try:
         if len(sys.argv) > 1 and sys.argv[1] == "--align":
-            align_saved(sys.argv[2], sys.argv[3])
+            keep = int(sys.argv[4]) if len(sys.argv) > 4 else GIBBS_ALIGN_DRAWS
+            align_saved(sys.argv[2], sys.argv[3], keep)
         else:
             main()
     except Exception:
