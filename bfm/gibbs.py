@@ -34,16 +34,24 @@ class GibbsBFM(BaseBFM):
         Truncation level of the loading matrix (number of columns).
     a, c1, c2 : float
         Hyperparameters of the L_{1/2} shrinkage prior; the defaults
-        a = 10, c1 = 2.0, c2 = 1.0 satisfy the paper's theory conditions.
+        a = 10, c1 = 2.3, c2 = 1.0 satisfy the paper's theory conditions.
     a_sigma, b_sigma : float
         Inverse-gamma hyperparameters of the noise variances.
     center : bool, default True
         Subtract the column means of X before fitting.
     n_iter, burn_in, thin : int
-        Total sweeps, discarded initial sweeps, and keep-every-thin.
+        Total sweeps, discarded initial sweeps, and thinning interval.
+        The defaults (5000, 2500, 1) retain the last 2500 sweeps.
     seed : int or None
-        Seed for jax.random.PRNGKey; None draws a random seed.  The same
-        seed (on the same backend) reproduces the same chain.
+        Seed for the Gibbs draws. None draws a random seed. With fixed
+        initialization, the same seed on the same backend reproduces the chain.
+    init_method : {"principal_factor", "spectral_varimax"}, default "principal_factor"
+        The principal-factor start uses leading covariance eigenvectors and
+        a common noise variance. The spectral-varimax start uses rotated and
+        ordered spectral loadings and a residual variance seed per variable.
+    init_seed : nonnegative int, default 2026
+        Seed for spectral-varimax loading columns beyond the numerical data
+        rank, independent of the Gibbs draws. Ignored by principal_factor.
     graph : bool, default False
         On a GPU backend, record each compiled chunk as one CUDA graph
         (XLA command buffers); elsewhere a warning is issued and the
@@ -70,6 +78,8 @@ class GibbsBFM(BaseBFM):
         Kept noise-variance draws.
     seed_ : int
         The seed actually used.
+    initialization_method_, initialization_info_ : str, dict
+        Starting method and diagnostics for the fitted chain.
     runtime_sec_ : float
         Wall-clock seconds of the scan loop (excludes AOT compilation).
     gamma_mode_ : str
@@ -148,19 +158,21 @@ class GibbsBFM(BaseBFM):
         self,
         K,
         a=10.0,
-        c1=2.0,
+        c1=2.3,
         c2=1.0,
         a_sigma=1.0,
         b_sigma=1.0,
         center=True,
-        n_iter=2000,
-        burn_in=1000,
+        n_iter=5000,
+        burn_in=2500,
         thin=1,
         seed=None,
         graph=False,
         verbose=True,
         chi2_max_normals=8_000_000,
         chi2_chunk_elems=1 << 22,
+        init_method="principal_factor",
+        init_seed=2026,
     ):
         super().__init__(
             K, a=a, c1=c1, c2=c2, a_sigma=a_sigma, b_sigma=b_sigma,
@@ -170,6 +182,8 @@ class GibbsBFM(BaseBFM):
         self.burn_in = burn_in
         self.thin = thin
         self.seed = seed
+        self.init_method = init_method
+        self.init_seed = init_seed
         self.graph = graph
         self.chi2_max_normals = chi2_max_normals
         self.chi2_chunk_elems = chi2_chunk_elems
@@ -196,11 +210,15 @@ class GibbsBFM(BaseBFM):
             graph=self.graph,
             chi2_max_normals=self.chi2_max_normals,
             chi2_chunk_elems=self.chi2_chunk_elems,
+            init_method=self.init_method,
+            init_seed=self.init_seed,
         )
         self.raw_output_ = out
         self.B_samples_ = out["B"]
         self.sigma2_samples_ = out["sigma2"]
         self.seed_ = out["seed"]
+        self.initialization_method_ = out["initialization_method"]
+        self.initialization_info_ = out["initialization_info"]
         self.runtime_sec_ = out["runtime_sec"]
         self.gamma_mode_ = out["gamma_mode"]
         self.chi2_normals_ = out["chi2_normals"]

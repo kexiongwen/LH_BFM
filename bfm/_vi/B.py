@@ -1,4 +1,4 @@
-"""Factor loading matrix B (JAX, single precision).
+"""Factor loading matrix B (JAX, input-selected floating precision).
 
 Variational factor for the loading rows:
 

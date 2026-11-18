@@ -9,7 +9,7 @@ the Bayesian factor model with an L₁/₂ shrinkage prior.**
 
 `bfm` (distribution name `bfm-lh`) packages the two inference algorithms of the
 paper *Bayesian factorization via L₁/₂ shrinkage* behind one API. It is a
-single-precision JAX implementation with optional GPU acceleration, RSP factor
+JAX implementation with float32 defaults, optional float64 CAVI, GPU acceleration, RSP factor
 alignment, ESS diagnostics, and exact posterior covariance moments.
 
 | Estimator | Inference | Speed | Best for |
@@ -32,6 +32,7 @@ alignment, and support `center=True` preprocessing.
 - [Factor scores](#factor-scores)
 - [Effective sample size](#effective-sample-size)
 - [Parameters and conventions](#parameters-and-conventions)
+- [CAVI initialization](#cavi-initialization)
 - [Examples](#examples)
 - [Notes](#notes)
 - [License](#license)
@@ -69,7 +70,7 @@ from bfm import GibbsBFM, CaviBFM
 X = ...  # (n, p) data; column-centered by default
 
 # Exact MCMC
-gs = GibbsBFM(K=10, n_iter=2000, burn_in=1000, thin=1, seed=2025).fit(X)
+gs = GibbsBFM(K=10, seed=2025).fit(X)
 gs.B_samples_        # (S, p, K) kept draws
 gs.B_hat_            # posterior-mean loadings
 gs.Sigma_            # plug-in covariance: B_hat_ B_hat_^T + diag(sigma2_hat_)
@@ -87,8 +88,8 @@ vi.plot_elbo(show=True)  # requires matplotlib
 
 Both estimators are fitted with scikit-learn conventions (`fit` returns
 `self`) and accept `center=True` by default. The center means are computed
-and subtracted in float64, then the centered matrix is cast to float32 for
-the single-precision JAX inference.
+and subtracted in float64, then the centered matrix is cast to the inference
+precision: float32 by default, or float64 for CAVI's explicit opt-in.
 
 ## Common API
 
@@ -134,9 +135,8 @@ or `GibbsBFM.active_entries()` raises `TypeError`.
 ### Importing driver submodules
 
 `bfm._gs` and `bfm._vi` intentionally re-export same-named driver functions.
-As a result, **`bfm._gs.GS_LH`**, **`bfm._vi.elbo`**, and
-**`bfm._vi.initialization`** are functions, not modules. Use `importlib` or a
-from-submodule import to reach the module itself:
+The names `bfm._gs.GS_LH`, `bfm._vi.elbo`, and `bfm._vi.spectral_initialization`
+refer to the exported functions. Use `importlib` to access their modules.
 
 ```python
 import importlib
@@ -201,7 +201,7 @@ Rotation-Sign-Permutation (RSP) post-processing picks an orientation for
 display and comparison; it does not make the posterior invariant.
 
 ```python
-gs = GibbsBFM(K=10, n_iter=2000, burn_in=1000, seed=2025).fit(X)
+gs = GibbsBFM(K=10, seed=2025).fit(X)
 gs.align_factors()          # varimax + sign/permutation alignment
 
 gs.B_hat_                   # aligned posterior mean
@@ -284,22 +284,97 @@ Two deliberate wrapper-level differences:
 
 Notable defaults:
 
-- `CaviBFM` uses absolute tolerance `tol=1e-1` on the variable part of the
-  ELBO, with a separate `drop_budget=0.5`; a larger ELBO decrease raises
-  `FloatingPointError`.
+- Both estimators use `a=10.0`, `c1=2.3`, and `c2=1.0`. Gibbs runs
+  5,000 sweeps, discards the first 2,500, and retains every subsequent
+  sweep (`n_iter=5000`, `burn_in=2500`, `thin=1`).
+- `CaviBFM` stops when the absolute change in the variable part of the ELBO
+  falls below `tol=1e-1` or it reaches `max_iter=1000` by default.
+  Set `max_iter=None` to run until the tolerance is reached. An ELBO
+  decrease larger than `drop_budget=0.5` raises `FloatingPointError`.
+- `GibbsBFM` defaults to `init_method="principal_factor"`. With
+  `init_method="spectral_varimax"`, the chain starts at the sorted spectral
+  loadings and each variable's residual noise variance from the spectral
+  initializer below. The first sweep samples scores and shrinkage parameters
+  conditional on these starting values. `seed` controls Gibbs sampling and
+  `init_seed` controls extra loading columns when `K` exceeds numerical rank.
 - Hyperparameters violating the paper's conditions (`a >= 4` and
   `4(c1 + c2) > 1`) trigger one `UserWarning` but still run.
 - `thin` follows the `GS_LH` convention: it keeps the **last** sweep of
   each block. The first retained sweep after burn-in is `burn_in + thin`, and
   the number of kept draws is `(n_iter - burn_in) // thin`.
-- Inference runs in float32; JAX x64 is only enabled by explicit opt-ins
-  (e.g. RSP `precision="float64"`).
+- Inference defaults to float32. CAVI and RSP support explicit
+  `precision="float64"`; these opt-ins enable JAX's process-wide x64 flag.
+  Gibbs remains float32, and an explicitly/default-selected float32 CAVI run
+  stays float32 even if that flag is already enabled.
 - On a GPU backend, GS may use a chi-square Gamma approximation when the shape
   rounding is negligible and the estimated normal-draw cost is below
   `chi2_max_normals` (default `8e6`). `GibbsBFM.gamma_mode_` and
   `GibbsBFM.chi2_normals_` report the choice; lower `chi2_max_normals` forces
   exact Gamma. `chi2_chunk_elems` bounds the sampling chunk memory.
 - `graph=True` uses XLA command buffers on GPU and warns/falls back elsewhere.
+
+## CAVI initialization
+
+Each fit uses one initialization. The default, `init_method="spectral"`, uses
+the SVD loadings directly. Set `init_method="spectral_varimax"` to rotate the
+spectral loadings before starting CAVI. In both `CaviBFM` and `CAVI`, pass
+options following `max_iter` by keyword.
+
+```python
+spectral = CaviBFM(K=50, init_seed=2026).fit(X)  # spectral, float32 by default
+rotated = CaviBFM(K=50, init_method="spectral_varimax", init_seed=2026).fit(X)
+
+# Double precision from prepared data through initialization and every sweep.
+spectral64 = CaviBFM(K=50, init_method="spectral", init_seed=2026,
+                     precision="float64").fit(X)
+```
+
+To choose between the two spectral starts by ELBO, run both fits with the
+same data and settings and take the fit with the larger final `elbo_[-1]`.
+Both spectral initializers use the preprocessed data and follow these steps.
+
+1. Compute a thin SVD and initialize `r = min(K, numerical_rank(X))` loading
+   columns as right singular vectors times their singular values divided by
+   `sqrt(n)`. The rank tolerance is
+   `max(n, p) * eps_selected_precision * largest_singular_value`.
+2. Set each noise seed to the larger of its unexplained second moment and 5%
+   of its observed second moment. Initialize each loading-row covariance to
+   `noise_seed[j] / n * I_K`.
+3. With `spectral_varimax`, apply orthogonal varimax to the first `r` loading
+   columns in the selected inference precision. The criterion uses the raw
+   loadings without row normalization. The rotation uses the SVD polar factor
+   and is the identity for `r = 1`.
+4. When there are `m = K - r` extra columns, draw them with the local fixed-seed
+   NumPy generator, with entry variance
+   `noise_seed[j] * min(1/n, 0.01/m)`. This bounds expected added row energy by
+   1% of that row's noise seed. No perturbation is added to the spectral columns.
+5. Sort all `K` columns by decreasing `sum_j (mu[j,k]**2 + V[j,k,k])**0.25`.
+6. Generate factor-score moments using the seed noise precision, then refresh
+   the auxiliary factors and the noise factors before computing the initial ELBO.
+
+The seed statistics and SVD are computed on the host in float64 from the same
+prepared data used for inference. Returned recurrence arrays, prior weights,
+ELBO evaluation and CAVI sweeps use the selected precision. Float64 input is
+never passed through a float32 intermediate when `precision="float64"`.
+This opt-in enables JAX's process-wide x64 flag and leaves it enabled; the
+default float32 path does not change the flag. `precision_` and `dtype_` record
+the fitted precision. This controls arithmetic accuracy; the stopping rule
+remains the absolute change in the ELBO variable part.
+Constant columns are rejected with their indices so the caller can handle them
+explicitly. If all nonzero spectral directions are retained, the initial noise
+seeds equal the specified 5% floors. These constants are reproducible initial
+choices, not statistically optimal noise estimates.
+
+Both spectral methods choose their rank and covariance scale from the data.
+Pass `initial_state` to start from supplied variational parameters. The fitted
+attributes `initialization_method_`,
+`initialization_info_`, and `initialization_sec_` record the actual choice,
+spectral diagnostics where applicable, and setup time. For `spectral_varimax`,
+`initialization_info_["varimax_n_iter"]` gives the number of rotation iterations.
+Compilation and iteration times are available as `compile_sec_` and `runtime_sec_`.
+
+CAVI updates scores, loadings, auxiliary factors, then noise. The final two updates make the
+simplified ELBO valid at every completed sweep.
 
 ## Examples
 
@@ -321,13 +396,68 @@ To use an NVIDIA GPU, set `MODE = "gpu"` in a CUDA-enabled Linux/WSL2 Jupyter
 kernel, then restart the kernel and run all cells. Saved outputs reflect the
 last execution; rerun the notebooks to reproduce results.
 
+Both notebooks fit Gibbs and CAVI in float32 with `c1=2.3` and
+`init_method="spectral_varimax"`. Each Gibbs chain runs 5,000 sweeps with seed
+2026, discards the first 2,500, and retains every subsequent sweep. CAVI uses
+`max_iter=None` and an absolute ELBO change tolerance of 0.1.
+
+For all four Gibbs settings below, the 95% credible intervals selected the
+first five factors before and after alignment in both datasets. The table
+gives the relative Frobenius error of the Gibbs posterior mean covariance.
+
+| Gibbs `c1` | Sweeps | Retained | Demo 1 | Demo 2 |
+|---|---:|---:|---:|---:|
+| 2.0 | 2,000 | 1,000 | [0.304012](validation/2026-11-18-gs-spectral-varimax/demo1.json) | [0.250456](validation/2026-11-18-gs-spectral-varimax/demo2.json) |
+| 2.3 | 2,000 | 1,000 | [0.316230](validation/2026-11-18-gs-c1-2p3/demo1.json) | [0.255169](validation/2026-11-18-gs-c1-2p3/demo2.json) |
+| 2.3 | 5,000 | 2,500 | [0.279173](validation/2026-11-18-gs-c1-2p3-5000/demo1.json) | [0.275338](validation/2026-11-18-gs-c1-2p3-5000/demo2.json) |
+| 2.5 | 2,000 | 1,000 | [0.327728](validation/2026-11-18-gs-c1-2p5/demo1.json) | [0.262332](validation/2026-11-18-gs-c1-2p5/demo2.json) |
+
+The full `B.npy` and `sigma2.npy` arrays for the 5,000-sweep run are archived
+locally. Their first axis indexes sweeps 2,501 through 5,000 in order.
+
+In the earlier Gibbs runs at `c1=2.0`, the 95% credible intervals selected
+five factors in both examples before and after alignment. Switching from
+principal-factor to spectral-varimax initialization changes the relative
+Frobenius error of the posterior mean covariance from 0.304390 to 0.304012
+in [demo 1](validation/2026-11-18-gs-spectral-varimax/demo1.json) and from
+0.259528 to 0.250456 in [demo 2](validation/2026-11-18-gs-spectral-varimax/demo2.json).
+
+With the 100-sweep limit, CAVI retained 13 factors in
+[demo 1](validation/2026-11-18-cavi-c1-2p3-varimax-max100/demo1.json) and 8 in
+[demo 2](validation/2026-11-18-cavi-c1-2p3-varimax-max100/demo2.json).
+Both selection rules agreed before and after alignment. The final ELBO
+increases were 545.5 and 124.875, respectively, above the tolerance of 0.1.
+
+With `max_iter=None`, CAVI reached the tolerance at sweep 561 in
+[demo 1](validation/2026-11-18-cavi-c1-2p3-varimax-uncapped/demo1.json)
+and sweep 470 in [demo 2](validation/2026-11-18-cavi-c1-2p3-varimax-uncapped/demo2.json).
+The two selection rules retained 11 and 7 factors, respectively, with 5
+true factors in each dataset. The earlier fits with an upper limit of
+1,000 sweeps stopped at the same iterations in
+[demo 1](validation/2026-11-18-cavi-c1-2p3-varimax/demo1.json) and
+[demo 2](validation/2026-11-18-cavi-c1-2p3-varimax/demo2.json).
+
+With ordinary spectral initialization at `c1=2.5`, both CAVI selection rules
+retained 9 factors in [demo 1](validation/2026-11-18-cavi-c1-2p5/demo1.json)
+and 7 in [demo 2](validation/2026-11-18-cavi-c1-2p5/demo2.json). At `c1=2.3`,
+the ordinary spectral fits retained 11 factors in [demo 1](validation/2026-11-18-cavi-c1-2p3/demo1.json)
+and 7 in [demo 2](validation/2026-11-18-cavi-c1-2p3/demo2.json).
+The [preceding run summary](validation/2026-11-18-spectral-demos/run1/run_summary.json)
+records the earlier spectral fits.
+
+Historical results remain available separately: the
+[initialization comparison](validation/2026-11-17-cavi-initialization/run2/run_summary.json)
+compares PPCA with spectral initialization, and the
+[float64 rerun](validation/2026-11-18-cavi-float64/run1/run_summary.json) compares the spectral
+fits across precision. The executed notebooks and fitted states are archived locally.
+
 ## Notes
 
 <details>
 <summary><strong>Precision and memory notes</strong></summary>
 
-- Inference runs in float32. The preprocessing centering uses a float64 host
-  intermediate, then casts the centered matrix to float32.
+- Inference defaults to float32, with optional float64 CAVI. Preprocessing
+  centers in float64 on the host, then casts to the selected inference dtype.
 - `CaviBFM` posterior covariance moments are computed and returned in float64.
 - `precision="float64"` in RSP is opt-in and changes the process-wide JAX x64
   flag without restoring it.

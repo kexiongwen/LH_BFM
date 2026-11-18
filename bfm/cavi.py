@@ -3,7 +3,7 @@
 sklearn-style wrapper of the JAX coordinate-ascent variational
 inference driver :func:`bfm._vi.CAVI` (Section 4 / Algorithm 1 of the
 paper "Bayesian factorization via L_{1/2} shrinkage", with the
-closed-form ELBO of Appendix B2).  All numerical semantics (float32,
+closed-form ELBO of Appendix B2).  All numerical semantics (selected precision,
 the variable-part ELBO stopping criterion, device-side diagnostics,
 chunked while_loop, XLA command buffers) are those of the underlying
 driver; this class only adds the estimator interface and the shared
@@ -16,6 +16,7 @@ import numpy as np
 
 from ._posterior import cov_sigma_pairs, sigma_mean, sigma_variance
 from ._vi import CAVI
+from ._vi._precision import resolve_precision
 from .base import BaseBFM
 
 __all__ = ["CaviBFM"]
@@ -30,29 +31,36 @@ class CaviBFM(BaseBFM):
         Truncation level (upper bound on the number of factors).
     a, c1, c2 : float
         Hyperparameters of the L_{1/2} shrinkage prior; the defaults
-        a = 10, c1 = 2.0, c2 = 1.0 satisfy the paper's theory conditions.
+        a = 10, c1 = 2.3, c2 = 1.0 satisfy the paper's theory conditions.
     a_sigma, b_sigma : float
         Inverse-gamma hyperparameters of the noise variances.
     center : bool, default True
         Subtract the column means of X before fitting (in float64 on the
-        host; the centered matrix is then cast to float32).
+        host; the centered matrix is then cast to the selected precision).
     tol : float or None, default 1e-1
         Absolute ELBO stopping tolerance.  After each complete sweep,
         stop when abs(Lvar_t - Lvar_prev) < tol, where Lvar excludes
         the invariant ELBO constant.  Must be positive and finite;
         None also resolves to 1e-1.
-    max_iter : int, default 1000
-        Maximum number of CAVI sweeps.
-    r : int or None, default None
-        Number of leading factors used by the PPCA initialization;
-        defaults to min(K, min(n, p) - 2).  Ignored with
-        ``initial_state``.
-    v0 : float, default 1.0
-        Initial loading covariance scale, V_j = v0 * I_K.  Ignored with
-        ``initial_state``.
+    max_iter : int or None, default 1000
+        Maximum number of CAVI sweeps. With None, run until the ELBO
+        tolerance is reached. Numerical failures raise in either mode.
     initial_state : dict or None, default None
         Warm start with mu (p, K), V (p, K, K), W (n, K), Phi (K, K);
         validated and normalized by the underlying driver.
+    init_method : {"spectral", "spectral_varimax"}, default "spectral"
+        The spectral starts use per-variable noise-scaled covariances and
+        prior-aware column ordering. "spectral_varimax" first rotates the
+        retained spectral loadings after fixing the noise seeds and before
+        generating any extra columns.
+        A supplied ``initial_state`` takes precedence.
+    init_seed : int, default 2026
+        Nonnegative seed used only to generate spectral tail columns.
+    precision : {"float32", "float64"}, default "float32"
+        Precision of data, initialization, updates and ELBO stopping checks.
+        Float64 explicitly enables JAX's process-wide ``jax_enable_x64``
+        flag and leaves it enabled after fitting. Default float32 calls
+        retain explicit float32 arrays even when that flag is enabled.
     jit : bool, default True
         Compile the sweep into chunked lax.while_loop runners; False
         runs eagerly for debugging.
@@ -101,6 +109,12 @@ class CaviBFM(BaseBFM):
         Execution environment summary.
     compile_sec_, runtime_sec_ : float
         AOT compilation and sweep-loop wall times.
+    initialization_sec_ : float
+        Initialization time, including its state validation/synchronization.
+    initialization_method_, initialization_info_ : str, dict
+        Resolved initialization method and available initialization diagnostics.
+    precision_, dtype_ : str
+        Requested precision and actual floating dtype of the fitted state.
     B_hat_, sigma2_hat_, Sigma_ : numpy arrays
         Point estimates (see :class:`bfm.base.BaseBFM`); sigma2_hat_ is
         the inverse-gamma posterior mean beta / (alpha_n - 1).  These
@@ -172,15 +186,14 @@ class CaviBFM(BaseBFM):
         self,
         K,
         a=10.0,
-        c1=2.0,
+        c1=2.3,
         c2=1.0,
         a_sigma=1.0,
         b_sigma=1.0,
         center=True,
         tol=1e-1,
         max_iter=1000,
-        r=None,
-        v0=1.0,
+        *,
         initial_state=None,
         jit=True,
         chunk_size=50,
@@ -188,6 +201,9 @@ class CaviBFM(BaseBFM):
         audit_every=50,
         drop_budget=0.5,
         verbose=False,
+        init_method="spectral",
+        init_seed=2026,
+        precision="float32",
     ):
         super().__init__(
             K, a=a, c1=c1, c2=c2, a_sigma=a_sigma, b_sigma=b_sigma,
@@ -195,8 +211,6 @@ class CaviBFM(BaseBFM):
         )
         self.tol = tol
         self.max_iter = max_iter
-        self.r = r
-        self.v0 = v0
         self.initial_state = initial_state
         self.jit = jit
         self.chunk_size = chunk_size
@@ -204,6 +218,12 @@ class CaviBFM(BaseBFM):
         self.audit_every = audit_every
         self.drop_budget = drop_budget
         self.verbose = verbose
+        self.init_method = init_method
+        self.init_seed = init_seed
+        self.precision = precision
+
+    def _inference_dtype(self):
+        return resolve_precision(self.precision)
 
     def _fit_arrays(self, Xc):
         # Posterior-moment cache (Sigma_mean_/Sigma_var_); a new fit must not
@@ -219,8 +239,6 @@ class CaviBFM(BaseBFM):
             b_sigma=self.b_sigma,
             tol=self.tol,
             max_iter=self.max_iter,
-            r=self.r,
-            v0=self.v0,
             center=False,  # centering is done once by BaseBFM
             initial_state=self.initial_state,
             jit=self.jit,
@@ -230,6 +248,9 @@ class CaviBFM(BaseBFM):
             drop_budget=self.drop_budget,
             verbose=self.verbose,
             plot=False,
+            init_method=self.init_method,
+            init_seed=self.init_seed,
+            precision=self.precision,
         )
         self.raw_output_ = out
         self.mu_ = np.asarray(out["mu"])
@@ -250,6 +271,11 @@ class CaviBFM(BaseBFM):
         self.device_ = out["device"]
         self.compile_sec_ = out["compile_sec"]
         self.runtime_sec_ = out["runtime_sec"]
+        self.initialization_sec_ = out["initialization_sec"]
+        self.initialization_method_ = out["initialization_method"]
+        self.initialization_info_ = out["initialization_info"]
+        self.precision_ = out["precision"]
+        self.dtype_ = out["dtype"]
         self._B_hat = self.mu_
         # posterior mean of IG(alpha_n, beta_j): beta_j / (alpha_n - 1);
         # requires alpha_n > 1 (same guard as bfm._posterior).  Raising

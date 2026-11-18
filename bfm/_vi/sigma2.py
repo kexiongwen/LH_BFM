@@ -1,4 +1,4 @@
-"""Idiosyncratic noise variances sigma_j^2 (JAX, single precision).
+"""Idiosyncratic noise variances sigma_j^2 (JAX, selected precision).
 
 Variational factor for the diagonal noise covariance Omega:
 

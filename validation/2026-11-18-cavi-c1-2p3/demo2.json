@@ -1,0 +1,159 @@
+{
+  "demo": "demo2",
+  "scope": "Fresh CAVI fit and CAVI alignment only. The Gibbs fit and its recorded outputs are from the preceding notebook execution.",
+  "fit_started_utc": "2026-11-18T01:55:45.905754+00:00",
+  "fit_finished_utc": "2026-11-18T01:56:39.846295+00:00",
+  "input_archive": "validation/2026-11-18-spectral-demos/run1/demo2/inputs.npz",
+  "input_archive_sha256": "e66ae193764cc2b2e4df170d9baccaaef2c9a0474630ff89dcb015abfe8d2598",
+  "input_arrays_sha256": {
+    "X": "a7dba93aae17b27d38980c86bd0df64501cb61e4ac327bfe073c46ab6e8ffb57",
+    "B_true": "46551c9d1c260885fe1ac8c102775542ce4984d9e63c4aded169040a770bfecd",
+    "sigma2_true": "3a57be97d178a04bd4dfd719a833793103be6a347cf91b6fef2e99b546623a3a"
+  },
+  "input_shape": [
+    100,
+    1000
+  ],
+  "data_seed": 12,
+  "fitted_source_sha256": {
+    "bfm/_vi/B.py": "bd3cb75c831df8b0570fb0d8bcce03b6d508968bb4d424ecb90258471ce4b235",
+    "bfm/_vi/VI.py": "b9f5ab88db3e5e28f14ed2cb966f88e2721af222e56f38022c63630966aef157",
+    "bfm/_vi/__init__.py": "6d4d04f6a20ab64080d6873d8d7afb992e126ae4d8bae722191f739e8d245804",
+    "bfm/_vi/_linalg.py": "b51c86112a11360545e915f1bd5d604b6725bda1e046492fc1b2ccff77d5a9dc",
+    "bfm/_vi/_precision.py": "dc21ed765bfa4eec258aa9df822db1af4f87cbe1b0267c9d18c8586d64e00bf1",
+    "bfm/_vi/_runner.py": "c2099e9034f75e6c576707bf76fa83c68de6dc35f53ad58eb7127481fce65bcc",
+    "bfm/_vi/_state.py": "3af360f721c73e2fdea9124f1c159531423f75bca56ae755ad20fc0ffb9358c3",
+    "bfm/_vi/elbo.py": "cfb1b81bdae5f57c441e4127e306cd574aa3644ffa071b8c30d408333557b974",
+    "bfm/_vi/eta.py": "4b6d99b858dd7ca0ea48eaed01fd95a1babc966752098c5c11affe4448400c89",
+    "bfm/_vi/initialization.py": "5af298e97e77410b8b3b713504b324d4f534fc610848baf8a32a13511372a147",
+    "bfm/_vi/shrinkage.py": "13c9ad8357258be8cccb5827e1e134270cc2dd835d510fe8fb096db728dabfb0",
+    "bfm/_vi/sigma2.py": "09081fa5d02cbae5ef2a0cf6bb5239b544d7ebef574bf39eeeb2b0ad52ff76a2",
+    "bfm/_vi/spectral_initialization.py": "924f6c144180e9c775438332e724ced0bd9da54d2d71dfd5369d089050c413b2",
+    "bfm/base.py": "e0536f16c30a38c8dfe95d722b5f050e9246f6f66ec63c80439675a53f91efe8",
+    "bfm/cavi.py": "e5309ace5fd12592fce31a4b12732ef74bb020fd75dd3c26f4d03389be0ed852"
+  },
+  "configuration": {
+    "K": 50,
+    "a": 10.0,
+    "c1": 2.3,
+    "c2": 1.0,
+    "a_sigma": 1.0,
+    "b_sigma": 1.0,
+    "center": true,
+    "init_method": "spectral",
+    "init_seed": 2026,
+    "precision": "float32",
+    "max_iter": 1000,
+    "tol": 0.1,
+    "drop_budget": 0.5,
+    "jit": true,
+    "chunk_size": 50,
+    "graph": false,
+    "audit_every": 50
+  },
+  "software": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "python": "3.14.7",
+    "executable": "/opt/miniconda3/bin/python",
+    "jax": "0.11.2",
+    "jaxlib": "0.11.2",
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "optax": "0.2.9",
+    "backend": "cpu",
+    "device": "cpu:0"
+  },
+  "state_reference": "validation/2026-11-18-spectral-demos/run1/demo2/spectral_state.npz",
+  "state_reference_sha256": "e15d6c86fb7dace722b31a0c19e6bcf172c6d5a8ac75260bb3d0c99ea3d0ca7c",
+  "all_state_arrays_bitwise_equal_including_entire_elbo_history": true,
+  "state_array_sha256": {
+    "mu": "d4d44079d989efbfb02a62cd10caa9f396926c8b4f877d11927f47f93d2361b5",
+    "V": "8bc1cfee51a260c18269a2ced48734a94c6c710e22ad98fee1f7e7a311eb4822",
+    "W": "fd1c64b70435d878a04360328516f6277b323be429fd7bb8db0207cfdacf13af",
+    "Phi": "341915a1d130de106af005fd2af51a2322f1d4a907593846cf3e0751eb14731d",
+    "beta": "6cf5ebea23bc19bbf6373dc3c6a5d5b88afa56f4e0e198724f1e5396ecc85af9",
+    "c": "79e66d5027b8ba86bcb22a285bb5e2cc291323a88053bacddff9c4708ef34135",
+    "rho": "734f28c7903209556b28c27de5b41db5ad3808d0ad0f21e8e9d8bea42b21500f",
+    "m": "392b51507527353f427c56837f7921bd33a6b7496a263c3b55a5aa32c16bcb60",
+    "alpha_n": "c290df727be4d56df5a29a9dca813244fb6789f47bb98cb43692f776a539e2f1",
+    "x_offset": "b56505ee0673f32feb86bc4de54980439c3bd4382945a303b82a6c054c94ddba",
+    "elbo": "7e3b34ab0b37d8ffd142d030435242ca5c8707052e77ce6b43793dda0e9bc8d7",
+    "sigma2_hat": "d7d5b8d863ceca6eb119be072d84b0e6699acf2868ebfb4c16e23f4bbda63b27"
+  },
+  "n_iter": 524,
+  "stop_reason": "tol",
+  "initial_elbo": -1198550.0850662366,
+  "final_elbo": -143130.83506623656,
+  "last_elbo_increment": 0.0625,
+  "timing_seconds": {
+    "initialization_sec": 3.6429779999998573,
+    "compilation_sec": 1.0899154170001566,
+    "loop_sec": 48.94132704100048,
+    "fit_wall_sec": 53.940162375
+  },
+  "active_columns_one_based": {
+    "raw": {
+      "credible": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "linf": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    "aligned": {
+      "credible": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "linf": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    }
+  },
+  "counts": {
+    "raw": {
+      "credible": 7,
+      "linf": 7
+    },
+    "aligned": {
+      "credible": 7,
+      "linf": 7
+    }
+  },
+  "selection": {
+    "credible_level": 0.95,
+    "linf_threshold_strictly_greater_than": 0.1
+  },
+  "all_50_raw_and_aligned_column_norms_match_display": true,
+  "metrics": {
+    "covariance_posterior_mean_frobenius": 73.99162161920728,
+    "covariance_posterior_mean_relative_frobenius": 0.27260855055764766,
+    "noise_mae": 0.06296548209180133,
+    "noise_rmse": 0.08795734063821382
+  },
+  "notebook_before_sha256": "c642db7296445f9998174a391645bf7eb454f1b1ce705b80853536022d6f6363",
+  "notebook_after_sha256": "f8ff60ff1ebd22c7e06716f6b046974da256a0594cfbefde3b0fccbf6e9ee7d4"
+}

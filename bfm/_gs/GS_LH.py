@@ -33,8 +33,8 @@ JAX-specific notes
   every module derives its dtype from it.  jax's x64 mode is neither
   required nor enabled by this package.
 * Randomness is explicit: `seed` seeds one jax.random.PRNGKey that is
-  split into one key per sweep up front; the same seed reproduces the
-  same chain.
+  split into one key per sweep up front. The optional spectral tail
+  initialization uses a separate NumPy `init_seed`.
 * The chain is executed as jax.lax.scan over the sweep keys, in chunks
   of at most _CHUNK sweeps: each chunk is ONE compiled XLA While loop
   (the full 4-step sweep inside), with no Python dispatch or host
@@ -120,8 +120,7 @@ def Initialization(X: jax.Array, r: int) -> tuple[jax.Array, float]:
       sum_{i > r} s_i^2 = tr(Sigma_hat) - sum_{i <= r} s_i^2,
       with the denominator min(n - 1, p) - r: column-centered X has rank
       at most min(n - 1, p), so this is exactly the number of trailing
-      eigenvalues that can be nonzero (the convention shared with
-      the :mod:`bfm._vi` PPCA initialization);
+      eigenvalues that can be nonzero;
     * s_i^2 - sigma2_hat is floored at 0: top-r components below the
       noise floor initialize to a zero column instead of NaN.
 
@@ -366,18 +365,20 @@ def GS_LH(
     X: jax.Array,
     K: int,
     a: float = 10.0,
-    c1: float = 2.0,
+    c1: float = 2.3,
     c2: float = 1.0,
     a_sigma: float = 1.0,
     b_sigma: float = 1.0,
-    n_iter: int = 2000,
-    burn_in: int = 1000,
+    n_iter: int = 5000,
+    burn_in: int = 2500,
     thin: int = 1,
     seed: int | None = None,
     verbose: bool = True,
     graph: bool = False,
     chi2_max_normals: int = 8_000_000,
     chi2_chunk_elems: int = 1 << 22,
+    init_method: str = "principal_factor",
+    init_seed: int = 2026,
 ) -> dict:
     r"""Gibbs sampler for the L_{1/2}-shrunk Bayesian factor model (JAX).
 
@@ -403,7 +404,7 @@ def GS_LH(
     a, c1, c2 : float
         Hyperparameters of the L_{1/2} prior's lambda hyperprior
         Ga(a + k^{c_1}, k^{-c_2}); all must be > 0.  Defaults a = 10,
-        c1 = 2.0, c2 = 1.0 satisfy the theory conditions a >= 4 and
+        c1 = 2.3, c2 = 1.0 satisfy the theory conditions a >= 4 and
         q = 4(c1 + c2) > 1; violating them triggers a UserWarning
         (the sampler on the K-truncated model remains valid, but the
         paper's asymptotic theory need not apply).
@@ -411,7 +412,8 @@ def GS_LH(
         Inverse-gamma hyperparameters of sigma_j^2 ~ IG(a_sigma, b_sigma);
         both must be > 0.
     n_iter, burn_in, thin : int
-        Total sweeps, discarded initial sweeps, and keep-every-thin.
+        Total sweeps, discarded initial sweeps, and thinning interval.
+        The defaults (5000, 2500, 1) retain the last 2500 sweeps.
         Thinning keeps the LAST sweep of each thin block: with 0-based
         kept-phase indices the retained draws are thin-1, 2*thin-1, ...,
         so the first retained sweep is burn_in + thin (not burn_in),
@@ -422,9 +424,9 @@ def GS_LH(
         sweeps are never transferred to the host; the chain itself
         (keys, sweep order, final state) is unchanged.
     seed : int or None
-        Seed for jax.random.PRNGKey.  None draws a random seed.  The
-        same seed (on the same backend) reproduces the same chain,
-        including eta_last / D_last.
+        Seed for the Gibbs draws. None draws a random seed. With fixed
+        initialization, the same seed on the same backend reproduces
+        the chain, including eta_last / D_last.
     verbose : bool
         Print progress about every 10% of the sweeps (reports are
         emitted at chunk boundaries, so small runs print less often).
@@ -449,6 +451,16 @@ def GS_LH(
         Maximum element count of one chi-square sampling chunk (about
         16 MB in float32), bounding the transient device memory of the
         GPU approximation.
+    init_method : {"principal_factor", "spectral_varimax"}, default "principal_factor"
+        Starting values for the loading matrix and noise variances.
+        The principal-factor start uses a common noise variance and
+        requires min(n, p) >= 3. The spectral-varimax start rotates the
+        retained spectral loadings, orders the columns by their shrinkage
+        statistic and uses a residual variance seed for each variable.
+        It requires n >= 2 and nonconstant variables.
+    init_seed : nonnegative int, default 2026
+        NumPy seed used by spectral_varimax for columns beyond the
+        numerical data rank. The principal-factor start ignores it.
 
     Returns
     -------
@@ -462,13 +474,15 @@ def GS_LH(
                     warm starts;
         "D_last"  : (p, K) shrinkage scales drawn from the final state;
         "seed"    : the seed actually used;
+        "initialization_method", "initialization_info" : selected
+                    initialization method and its diagnostics;
         "runtime_sec" : wall-clock seconds of the scan loop (excludes
                     the ahead-of-time JIT compilation);
         "gamma_mode" : "exact" or "chi2" (the Gamma-draw path used);
         "chi2_normals": int, estimated normal draws of the chi2 path
                     (0 when exact).
 
-    Initialization: principal-factor initialization (see Initialization)
+    The default principal-factor initialization (see Initialization) starts
     with r = min(K, min(n, p) - 2) leading factors; remaining columns of
     B start at a tiny deterministic jitter (not exact zero, where the
     conditional's inverse-Gaussian parameterization degenerates; see
@@ -508,6 +522,10 @@ def GS_LH(
     device audit).  A non-finite state raises FloatingPointError instead
     of silently contaminating the chain.
     """
+    if not isinstance(init_method, str) or init_method not in (
+        "principal_factor", "spectral_varimax",
+    ):
+        raise ValueError("init_method must be 'principal_factor' or 'spectral_varimax'")
     # Deterministic/scalar control arguments are validated before any chain
     # work.  bool is an int subclass in Python; reject it explicitly so that
     # e.g. max_iter=True cannot silently mean one sweep.
@@ -594,20 +612,29 @@ def GS_LH(
         )
 
     n, p = X.shape
-    if min(n, p) < 3:
-        raise ValueError(
-            f"need min(n, p) >= 3 for initialization, got (n, p) = ({n}, {p})"
-        )
-
     # column weights (k^{c_1}), (k^{c_2}), k = 1..K
     k = jnp.arange(1, K + 1, dtype=_F32)
     weight1, weight2 = k ** c1, k ** c2
 
     # ---- initialize ---------------------------------------------------------
-    r = min(K, min(n, p) - 2)
-    B0, s2_0 = Initialization(X, r)
-    B = _initial_loadings(B0, p, K, r)
-    sigma2 = jnp.full((p,), s2_0, dtype=_F32)
+    if init_method == "principal_factor":
+        if min(n, p) < 3:
+            raise ValueError(
+                f"need min(n, p) >= 3 for initialization, got (n, p) = ({n}, {p})"
+            )
+        r = min(K, min(n, p) - 2)
+        B0, s2_0 = Initialization(X, r)
+        B = _initial_loadings(B0, p, K, r)
+        sigma2 = jnp.full((p,), s2_0, dtype=_F32)
+        initialization_info = {"method": init_method, "initial_rank": r}
+    else:
+        from .._spectral import spectral_seeds
+
+        B_seed, noise_seed, _, _, initialization_info = spectral_seeds(
+            X, K, seed=init_seed, dtype=np.dtype(np.float32), varimax=True,
+        )
+        B = jnp.asarray(B_seed, dtype=_F32)
+        sigma2 = jnp.asarray(noise_seed, dtype=_F32)
 
     n_keep = (n_iter - burn_in) // thin
 
@@ -767,7 +794,7 @@ def GS_LH(
     # (steps 1-2 only; same marginal law as the last in-chain draws).
     # key_extra is the reserved (n_iter + 1)-th child of the up-front
     # split (see above), so these draws are independent of every sweep
-    # key and the whole run stays reproducible from `seed` alone.
+    # key and the whole run stays reproducible for fixed initialization.
     k_eta, k_sh = jax.random.split(key_extra)
     eta_last = eta_sample(k_eta, X, state[0], state[1])
     # pass the run's chi2 plan so D_last uses the same lambda-draw rule
@@ -781,6 +808,8 @@ def GS_LH(
         "eta_last": np.asarray(eta_last),
         "D_last": np.asarray(D_last),
         "seed": seed,
+        "initialization_method": init_method,
+        "initialization_info": initialization_info,
         "runtime_sec": runtime,
         "gamma_mode": "chi2" if chi2_ok else "exact",
         "chi2_normals": int(chi2_normals),

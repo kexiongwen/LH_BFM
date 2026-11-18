@@ -1,4 +1,4 @@
-"""L_{1/2} shrinkage block (JAX, single precision).
+"""L_{1/2} shrinkage block (JAX, input-selected floating precision).
 
 The optimal variational factor q_k(tau_.k^2, lambda_k) has no standard
 form, but the moment needed by the B-update is available in closed form
@@ -61,21 +61,18 @@ __all__ = [
     "elbo_column_constant",
 ]
 
-_F32 = jnp.float32
-
-
-def column_index(K: int) -> jax.Array:
+def column_index(K: int, *, dtype=jnp.float32) -> jax.Array:
     """1-based column indices k = 1, ..., K.
 
     Returns
     -------
-    jax.Array, shape (K,), float32
+    jax.Array, shape (K,), selected dtype (default float32)
     """
-    return jnp.arange(1, K + 1, dtype=_F32)
+    return jnp.arange(1, K + 1, dtype=dtype)
 
 
 def column_weights(
-    p: int, K: int, a: float, c1: float, c2: float
+    p: int, K: int, a: float, c1: float, c2: float, *, dtype=jnp.float32
 ) -> tuple[jax.Array, jax.Array]:
     """Column weights of the shrinkage prior, computed once per run.
 
@@ -86,7 +83,7 @@ def column_weights(
     kneg_c2 : jax.Array, shape (K,)
         (k^{-c2})_{k=1}^K.
     """
-    k = column_index(K)
+    k = column_index(K, dtype=dtype)
     return 2.0 * p + a + k**c1, k ** (-c2)
 
 

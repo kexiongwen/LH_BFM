@@ -10,7 +10,7 @@ checking torch.cholesky_ex's info, which the PyTorch reference discarded
 (review finding F2).  No jitter is added anywhere: a failed update is
 reported, not silently repaired (migration plan section 10).
 
-Single precision (float32) throughout, as in :mod:`bfm._gs`.
+Array arithmetic preserves the input floating precision.
 
 For the batched B-block system the inverse is obtained with a matmul-based
 blocked triangular inverse on CPU for K >= 32, where batched ``cho_solve``

@@ -14,18 +14,18 @@ Const = p [log Gamma(alpha_n) - log Gamma(a_sigma) + a_sigma log b_sigma]
         + sum_k [log Gamma(2p + a + k^{c1}) - log Gamma(a + k^{c1})
                  - c2 (a + k^{c1}) log k - p log 4].
 
-Single precision (float32) throughout.  The stopping decision never
+Array arithmetic preserves the input precision. The stopping decision never
 touches this file's absolute ELBO: it uses the variable part only
 (the four block byproducts, without Const), which keeps the large
-invariant constant out of the float32 difference (migration plan
+invariant constant out of the floating-point difference (migration plan
 section 8.2; review finding F1).  The constant is combined on the
 host, once per chunk, for the reported ELBO history.
 
 This module provides the standalone diagnostic evaluator :func:`elbo`
 (re-factorizes Phi and V at a saved state) and the host-side constant
 :func:`elbo_const`.  The production path assembles the same value from
-the update byproducts; the independent float64 reference (five
-separate B2 terms) is not included in this repository.
+the update byproducts. Tests independently evaluate the five separate
+B2 terms in float64.
 """
 
 import math
@@ -130,7 +130,7 @@ def elbo(
     alpha_n = a_sigma + n / 2.0
 
     # only shape_k = 2p + a + k^{c1} is needed; m is taken as given
-    shape_k = 2.0 * p + a + column_index(K) ** c1
+    shape_k = 2.0 * p + a + column_index(K, dtype=W.dtype) ** c1
 
     L_phi, ok_phi = cholesky_checked(Phi)
     log_det_Phi = logdet_from_chol(L_phi)

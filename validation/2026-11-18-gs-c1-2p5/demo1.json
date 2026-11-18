@@ -1,0 +1,215 @@
+{
+  "method": "spectral_varimax",
+  "initialization": {
+    "method": "spectral_varimax",
+    "precision": "float32",
+    "seed": 2026,
+    "numerical_rank": 100,
+    "initial_rank": 50,
+    "tail_columns": 0,
+    "rank_tolerance": 0.06590073542624149,
+    "rank_precision": "float32",
+    "svd_precision": "float64",
+    "noise_floor_fraction": 0.05,
+    "tail_energy_fraction": 0.01,
+    "covariance_scale": "noise_seed / n",
+    "noise_seed_min": 0.19267715513706207,
+    "noise_seed_max": 0.7749662399291992,
+    "column_permutation": [
+      0,
+      1,
+      4,
+      3,
+      2,
+      5,
+      38,
+      24,
+      8,
+      14,
+      34,
+      11,
+      13,
+      17,
+      10,
+      19,
+      20,
+      9,
+      30,
+      39,
+      22,
+      40,
+      31,
+      16,
+      32,
+      37,
+      42,
+      26,
+      25,
+      36,
+      35,
+      18,
+      44,
+      27,
+      45,
+      12,
+      47,
+      6,
+      15,
+      21,
+      29,
+      23,
+      48,
+      49,
+      28,
+      46,
+      41,
+      43,
+      7,
+      33
+    ],
+    "varimax_n_iter": 88
+  },
+  "n": 100,
+  "p": 1956,
+  "K": 50,
+  "true_factors": 5,
+  "center": false,
+  "prior": {
+    "a": 10.0,
+    "c1": 2.5,
+    "c2": 1.0,
+    "a_sigma": 1.0,
+    "b_sigma": 1.0
+  },
+  "data_seed": 11,
+  "chain_seed": 2026,
+  "seed_for_extra_columns": 2026,
+  "backend": "cpu",
+  "dtype": "float32",
+  "total_sweeps": 2000,
+  "burn_in": 1000,
+  "thin": 1,
+  "kept": 1000,
+  "gamma_mode": "exact",
+  "runtime_seconds": 97.52531712500058,
+  "wall_seconds": 103.29015974999857,
+  "n_factors": 5,
+  "n_factors_aligned": 5,
+  "selected_columns": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "selected_columns_aligned": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "credible_level": 0.95,
+  "covariance_relative_frobenius": 0.3277277842414558,
+  "noise_mae": 0.11345804828563838,
+  "bulk_ess": {
+    "B": {
+      "min": 3.80507390056472,
+      "median": 954.5615762056441,
+      "mean": 927.0054972720203,
+      "max": 1602.7594736747178
+    },
+    "sigma2": {
+      "min": 482.4326044747665,
+      "median": 892.6614541313829,
+      "mean": 885.2353094297465,
+      "max": 1190.1193295180435
+    }
+  },
+  "selected_columns_median_loading_ess": 684.5964134400655,
+  "cavi_control": {
+    "init": "spectral",
+    "c1": 2.5,
+    "n_iter": 471,
+    "identical_to_archived": [
+      "mu",
+      "V",
+      "W",
+      "Phi",
+      "beta",
+      "rho",
+      "m",
+      "c",
+      "elbo"
+    ]
+  },
+  "draw_sha256": {
+    "loadings": "1918470b5335e3804da6d3e88ef091ea8fc6274c1c6fafac3324f188b6a1edd2",
+    "noise": "a3f8aaf45ba282ecc8b82eda7db50384ee5e54769f4dbb9f184a4db418ff5b99"
+  },
+  "checks": {
+    "exact_same_inputs": true,
+    "positive_noise_finite_draws": true,
+    "independent_hpd_counts": true,
+    "independent_covariance_block": true,
+    "same_initialization_as_c1_2": true,
+    "same_CAVI_as_archived": true
+  },
+  "demo": "demo1",
+  "previous": {
+    "prior": {
+      "a": 10.0,
+      "c1": 2.0,
+      "c2": 1.0,
+      "a_sigma": 1.0,
+      "b_sigma": 1.0
+    },
+    "method": "spectral_varimax",
+    "n_factors": 5,
+    "n_factors_aligned": 5,
+    "selected_columns": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "selected_columns_aligned": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "noise_mae": 0.11346059589663897,
+    "covariance_relative_frobenius": 0.3040120217710454,
+    "bulk_ess": {
+      "B": {
+        "min": 3.3926660106624986,
+        "median": 954.4724705286592,
+        "mean": 926.8776773899534,
+        "max": 1604.0355806790171
+      },
+      "sigma2": {
+        "min": 481.3440351505392,
+        "median": 892.6714378569029,
+        "mean": 885.1485587523243,
+        "max": 1190.5343402081653
+      }
+    },
+    "draw_sha256": {
+      "loadings": "cd08e37cd009beb410b754a1a874674a812f50e84edc0f32305d626504d2f2f7",
+      "noise": "6a03d22b163259af2eb79a2b113f406ede0109ff46bf987dc5d93ab2b24aa785"
+    },
+    "record": "validation/2026-11-18-gs-spectral-varimax/demo1.json"
+  },
+  "elapsed_seconds": 506.91369895800017,
+  "started_at": "2026-11-18T03:43:41.266835+00:00",
+  "finished_at": "2026-11-18T03:52:08.182206+00:00",
+  "status": "completed",
+  "figures": 11,
+  "executed_code_cells": 18,
+  "previous_notebook_sha256": "579f2166c5d1066543ce3b8f8d146a6017442789e11c16dd4b0b7251b990539f",
+  "notebook_sha256": "53f3306da2c868611335f12beb84afcb90c9d0cf27bef43ceff0ae75ea18bbd2",
+  "input_archive_sha256": "85a35950acb2772db8a72cf70d301bc02693fcba0cd577ccfd1143eb2647a632"
+}

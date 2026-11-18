@@ -1,0 +1,184 @@
+{
+  "method": "spectral_varimax",
+  "initialization": {
+    "method": "spectral_varimax",
+    "precision": "float32",
+    "seed": 2026,
+    "numerical_rank": 99,
+    "initial_rank": 50,
+    "tail_columns": 0,
+    "rank_tolerance": 0.019068367484053994,
+    "rank_precision": "float32",
+    "svd_precision": "float64",
+    "noise_floor_fraction": 0.05,
+    "tail_energy_fraction": 0.01,
+    "covariance_scale": "noise_seed / n",
+    "noise_seed_min": 0.028776070103049278,
+    "noise_seed_max": 0.3960874378681183,
+    "column_permutation": [
+      0,
+      3,
+      2,
+      4,
+      1,
+      48,
+      5,
+      7,
+      19,
+      29,
+      14,
+      18,
+      8,
+      36,
+      47,
+      28,
+      35,
+      30,
+      24,
+      26,
+      49,
+      27,
+      11,
+      45,
+      9,
+      32,
+      22,
+      23,
+      44,
+      40,
+      42,
+      39,
+      6,
+      21,
+      31,
+      20,
+      46,
+      12,
+      17,
+      38,
+      13,
+      34,
+      15,
+      10,
+      37,
+      33,
+      25,
+      43,
+      16,
+      41
+    ],
+    "varimax_n_iter": 55
+  },
+  "n": 100,
+  "p": 1000,
+  "K": 50,
+  "true_factors": 5,
+  "center": true,
+  "prior": {
+    "a": 10.0,
+    "c1": 2.0,
+    "c2": 1.0,
+    "a_sigma": 1.0,
+    "b_sigma": 1.0
+  },
+  "data_seed": 12,
+  "chain_seed": 2026,
+  "seed_for_extra_columns": 2026,
+  "backend": "cpu",
+  "dtype": "float32",
+  "total_sweeps": 2000,
+  "burn_in": 1000,
+  "thin": 1,
+  "kept": 1000,
+  "gamma_mode": "exact",
+  "runtime_seconds": 88.11999037500027,
+  "wall_seconds": 99.07692837499962,
+  "n_factors": 5,
+  "n_factors_aligned": 5,
+  "selected_columns": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "selected_columns_aligned": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "credible_level": 0.95,
+  "covariance_relative_frobenius": 0.25045610059121437,
+  "noise_mae": 0.06272868818023725,
+  "bulk_ess": {
+    "B": {
+      "min": 1.8643746359669982,
+      "median": 952.6170267250186,
+      "mean": 923.4648301260974,
+      "max": 1489.2632030088816
+    },
+    "sigma2": {
+      "min": 519.5921896829238,
+      "median": 880.3626853393009,
+      "mean": 870.8825602887501,
+      "max": 1179.4176718808305
+    }
+  },
+  "selected_columns_median_loading_ess": 613.5120494076817,
+  "cavi_control": {
+    "init": "spectral",
+    "c1": 2.5,
+    "n_iter": 340,
+    "identical_to_archived": [
+      "mu",
+      "V",
+      "W",
+      "Phi",
+      "beta",
+      "rho",
+      "m",
+      "c",
+      "elbo"
+    ]
+  },
+  "draw_sha256": {
+    "loadings": "735434d6c803d2d162c5f699aa31f40531e3e7e486f136516874e10cb3d8db21",
+    "noise": "00d01a2fa22e740434567ea0b07c4a267eb91c5fe6bad85de59432511221a91c"
+  },
+  "checks": {
+    "exact_same_inputs": true,
+    "positive_noise_finite_draws": true,
+    "independent_hpd_counts": true,
+    "independent_covariance_block": true,
+    "fixed_seed_replay_both_draw_arrays_bitwise_equal": true
+  },
+  "demo": "demo2",
+  "started_at": "2026-11-18T03:18:19.678248+00:00",
+  "notebook_wall_seconds": 541.733691,
+  "executed_code_cells": 19,
+  "figures": 12,
+  "previous": {
+    "method": "principal_factor",
+    "factor_counts": [
+      5,
+      5
+    ],
+    "covariance_relative_frobenius_rounded": 0.259528,
+    "bulk_ess_rounded": {
+      "B": {
+        "min": 2.0,
+        "median": 952.7
+      },
+      "sigma2": {
+        "min": 446.7,
+        "median": 875.6
+      }
+    },
+    "older_notebook_with_same_GS": "validation/2026-11-18-spectral-demos/run1/demo2.executed.ipynb"
+  },
+  "previous_notebook_sha256": "9b080d32a312fbe77aa091b48eb1fc587770e6a143ffca3847a9244f69996fc4",
+  "notebook_sha256": "6160f1380ecf42bedae084961924bb1a37a3eb028dedc19f1326a8246db7fbcb",
+  "input_archive_sha256": "e66ae193764cc2b2e4df170d9baccaaef2c9a0474630ff89dcb015abfe8d2598"
+}

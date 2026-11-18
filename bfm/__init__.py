@@ -11,8 +11,10 @@ paper "Bayesian factorization via L_{1/2} shrinkage":
 
 Both estimators share the hyperparameters of the prior (K, a, c1, c2,
 a_sigma, b_sigma), the preprocessing (float64 column centering followed
-by the float32 coercion) and the fitted accessors B_hat_ / sigma2_hat_ /
+by inference-dtype coercion) and the fitted accessors B_hat_ / sigma2_hat_ /
 Sigma_ / n_factors().
+
+Gibbs uses float32. CAVI defaults to float32 and supports explicit float64.
 
 Runtime dependencies: JAX/jaxlib and NumPy (matplotlib only for
 CaviBFM.plot_elbo, imported lazily).

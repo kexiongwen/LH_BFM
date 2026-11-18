@@ -1,4 +1,4 @@
-"""Coordinate ascent variational inference (CAVI) driver -- JAX, float32.
+"""Coordinate ascent variational inference (CAVI) driver -- JAX.
 
 One sweep updates, in order, q(eta), q(B), the shrinkage moments rho,
 and q(sigma2), then evaluates the variable part of the closed-form
@@ -9,9 +9,12 @@ R_j / 2 and m_k = sum_j E[B_jk^2]^{1/4} + k^{-c2} hold for the current
 (W, Phi, mu, V), and ending the sweep with the shrinkage and sigma2
 updates guarantees that.
 
-Single precision (float32) throughout -- the same philosophy as :mod:`bfm._gs`:
-X is coerced on entry and every module derives its dtype from it;
-JAX's x64 mode is neither required nor enabled by this package.  The
+Inference defaults to float32, with explicit float64 opt-in. Data,
+initialization, updates and stopping checks share the selected dtype.
+Float64 enables JAX's process-wide x64 mode and leaves it enabled;
+float32 calls retain explicit float32 arrays regardless of this flag.
+The spectral initializer computes SVD/seed statistics in host float64
+before returning the selected recurrence dtype. The
 stopping criterion uses the VARIABLE PART of the ELBO only
 (delta_t = L_var_t - L_var_{t-1}, |delta_t| < tol), which keeps the
 large invariant constant out of the float32 difference -- the main
@@ -49,6 +52,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from ._linalg import cholesky_checked, logdet_from_chol
+from ._precision import resolve_precision
 from ._runner import make_run_chunk, sweep
 from ._state import (
     ERR_ELBO_DROP,
@@ -61,13 +65,11 @@ from ._state import (
 from .B import log_det_V
 from .elbo import elbo, elbo_const
 from .eta import second_moment
-from .initialization import PPCA, initialization
+from .spectral_initialization import spectral_initialization
 from .shrinkage import column_weights, update_shrinkage
 from .sigma2 import mean_inverse, update_sigma2
 
-__all__ = ["CAVI", "PPCA", "elbo", "elbo_const", "plot_elbo", "initialization"]
-
-_F32 = jnp.float32
+__all__ = ["CAVI", "elbo", "elbo_const", "plot_elbo"]
 
 _ERROR_MESSAGES = {
     ERR_NONFINITE: "non-finite shrinkage moments / rates / ELBO",
@@ -85,8 +87,7 @@ def _validate_args(
     a_sigma: float,
     b_sigma: float,
     tol: float,
-    max_iter: int,
-    v0: float,
+    max_iter: int | None,
     chunk_size: int,
     audit_every: int,
 ) -> np.ndarray:
@@ -129,7 +130,7 @@ def _validate_args(
         raise ValueError(f"K must be an integer >= 1, got {K!r}")
     for name, val in (
         ("a", a), ("c1", c1), ("c2", c2),
-        ("a_sigma", a_sigma), ("b_sigma", b_sigma), ("v0", v0),
+        ("a_sigma", a_sigma), ("b_sigma", b_sigma),
     ):
         # math.isfinite raises a bare TypeError on non-numeric values;
         # report the documented ValueError instead.
@@ -145,12 +146,12 @@ def _validate_args(
         tol_ok = False
     if isinstance(tol, (bool, np.bool_)) or not tol_ok:
         raise ValueError(f"tol must be a positive finite number, got {tol}")
-    if (
+    if max_iter is not None and (
         isinstance(max_iter, (bool, np.bool_))
         or not isinstance(max_iter, (int, np.integer))
         or max_iter < 1
     ):
-        raise ValueError(f"max_iter must be an integer >= 1, got {max_iter}")
+        raise ValueError(f"max_iter must be None or an integer >= 1, got {max_iter}")
     if (
         isinstance(chunk_size, (bool, np.bool_))
         or not isinstance(chunk_size, (int, np.integer))
@@ -188,11 +189,9 @@ def _make_carry(state: dict) -> Carry:
         W=state["W"],
         Phi=state["Phi"],
         m=state["m"],
-        prev_elbo=jnp.asarray(state["elbo_var"], dtype=_F32),
-        t=jnp.int32(0),
+        prev_elbo=jnp.asarray(state["elbo_var"], dtype=state["mu"].dtype),
         converged=jnp.bool_(False),
         error=jnp.int32(0),
-        error_t=jnp.int32(0),
         error_module=jnp.int32(0),
     )
 
@@ -218,10 +217,10 @@ def _normalize_warm_start(
     missing = {"mu", "V", "W", "Phi"} - set(initial_state)
     if missing:
         raise ValueError(f"initial_state is missing required fields: {sorted(missing)}")
-    mu = jnp.asarray(initial_state["mu"], dtype=_F32)
-    V = jnp.asarray(initial_state["V"], dtype=_F32)
-    W = jnp.asarray(initial_state["W"], dtype=_F32)
-    Phi = jnp.asarray(initial_state["Phi"], dtype=_F32)
+    mu = jnp.asarray(initial_state["mu"], dtype=X.dtype)
+    V = jnp.asarray(initial_state["V"], dtype=X.dtype)
+    W = jnp.asarray(initial_state["W"], dtype=X.dtype)
+    Phi = jnp.asarray(initial_state["Phi"], dtype=X.dtype)
     if mu.shape != (p, K):
         raise ValueError(f"initial_state['mu'] must have shape {(p, K)}, got {mu.shape}")
     if V.shape != (p, K, K):
@@ -249,7 +248,10 @@ def _normalize_warm_start(
 
     S = second_moment(W, Phi)
     rho, m, elbo_shrink = update_shrinkage(mu, V, shape_k, kneg_c2)
-    alpha_n, beta, elbo_sigma2 = update_sigma2(X, W, Phi, mu, V, a_sigma, b_sigma)
+    alpha_n, beta, elbo_sigma2 = update_sigma2(
+        X, W, Phi, mu, V,
+        jnp.asarray(a_sigma, dtype=X.dtype), jnp.asarray(b_sigma, dtype=X.dtype),
+    )
     c = mean_inverse(alpha_n, beta)
     elbo_eta = 0.5 * n * logdet_from_chol(L_phi) - 0.5 * jnp.trace(S)
     elbo_var = elbo_eta + 0.5 * ldV.sum() + elbo_shrink + elbo_sigma2
@@ -294,14 +296,13 @@ def CAVI(
     X: jax.Array,
     K: int,
     a: float = 10.0,
-    c1: float = 2.0,
+    c1: float = 2.3,
     c2: float = 1.0,
     a_sigma: float = 1.0,
     b_sigma: float = 1.0,
     tol: float | None = 1e-1,
-    max_iter: int = 1000,
-    r: int | None = None,
-    v0: float = 1.0,
+    max_iter: int | None = 1000,
+    *,
     center: bool = True,
     initial_state: dict | None = None,
     jit: bool = True,
@@ -311,22 +312,25 @@ def CAVI(
     drop_budget: float | None = 0.5,
     verbose: bool = False,
     plot: bool = False,
+    init_method: str = "spectral",
+    init_seed: int = 2026,
+    precision: str = "float32",
 ) -> dict:
-    """Coordinate ascent variational inference (Algorithm 1), JAX float32.
+    """Coordinate ascent variational inference (Algorithm 1), JAX.
 
     Parameters
     ----------
     X : jax.Array, shape (n, p)
         Data matrix.  The model has zero mean, so columns are centered
         by default (``center=True``).  Centering is done in float64 on
-        the host, then the centered matrix is coerced to float32 (casting
+        the host, then the centered matrix is coerced to ``precision`` (casting
         first would quantize away the within-column variation when the
         column offsets are large).
     K : int
         Truncation level (upper bound on the number of factors).
     a, c1, c2 : float
         Hyperparameters of the L_{1/2} shrinkage prior.  Defaults a=10,
-        c1=2.0, c2=1.0 satisfy a >= 4 and q = 4(c1 + c2) > 1.
+        c1=2.3, c2=1.0 satisfy a >= 4 and q = 4(c1 + c2) > 1.
     a_sigma, b_sigma : float
         Inverse-gamma hyperparameters of the noise variances.
     tol : float or None, default 1e-1
@@ -336,30 +340,34 @@ def CAVI(
         None also resolves to 1e-1.  Float32 ELBO resolution is on the
         order of |ELBO_var| * 1e-7; tolerances near that scale can
         respond to rounding jitter.
-    max_iter : int, default 1000
-        Maximum number of CAVI sweeps.
-    r : int or None, default None
-        Number of leading factors used by the PPCA initialization;
-        defaults to min(K, min(n, p) - 2).  Values larger than K are
-        clipped to K.  Ignored with ``initial_state``.
-    v0 : float, default 1.0
-        Initial loading covariance scale, V_j = v0 * I_K.  Ignored
-        with ``initial_state``.
+    max_iter : int or None, default 1000
+        Maximum number of CAVI sweeps. With None, run until the ELBO
+        tolerance is reached. Numerical failures raise in either mode.
     center : bool, default True
         Subtract the column means of X before running.  The means are
         computed and subtracted in float64 on the host, then the centered
-        matrix is cast to float32.  With ``center=False`` the data are
-        ASSUMED already column-centered: the PPCA initialization (thin SVD
-        with the n-1 denominator) relies on it, so running uncentered data
-        with ``center=False`` biases the initial noise floor.  This affects
-        only the initial values (and possibly the sweep count), not the
-        CAVI updates themselves; the model has zero mean, so centering the
-        data is strongly recommended.
+        matrix is cast to the selected precision. With ``center=False``,
+        initialization and inference use X as supplied.
     initial_state : dict or None, default None
         Warm start: must contain mu (p, K), V (p, K, K), W (n, K),
         Phi (K, K); validated (shape, finiteness, SPD) and normalized
         into a self-consistent state (S, rho, m, beta, c and the
         initial ELBO are recomputed).
+    init_method : {"spectral", "spectral_varimax"}, default "spectral"
+        "spectral" uses thin-SVD loadings, a 5% per-variable residual-noise
+        floor, loading covariances noise/n, and prior-aware column ordering.
+        "spectral_varimax" rotates the retained SVD loadings in the inference
+        dtype after fixing the noise seeds and before adding any random tail
+        columns and sorting.
+        A supplied ``initial_state`` takes precedence.
+    init_seed : int, default 2026
+        Nonnegative seed used only for spectral tail columns when their
+        number is positive. A supplied initial state needs no seed.
+    precision : {"float32", "float64"}, default "float32"
+        Floating dtype for the input, initialization, updates, and ELBO
+        stopping checks. Float64 enables the process-wide JAX x64 flag
+        and leaves it enabled after fitting. Float32 calls explicitly
+        retain single precision even if that flag is already enabled.
     jit : bool, default True
         Compile the sweep into chunked lax.while_loop runners.  False
         runs the sweep eagerly, one host-visible step at a time (for
@@ -432,12 +440,21 @@ def CAVI(
         execution_mode : "while_loop", "command_buffer" or "eager",
         backend, device : execution environment summary,
         compile_sec : AOT compilation wall time (0 in eager mode),
-        runtime_sec : sweep-loop wall time (excludes compilation).
+        runtime_sec : sweep-loop wall time (excludes compilation),
+        precision, dtype, input_dtype, elbo_dtype : precision diagnostics.
     """
     if tol is None:
         tol = 1e-1
+    if not isinstance(init_method, str) or init_method not in ("spectral", "spectral_varimax"):
+        raise ValueError("init_method must be 'spectral' or 'spectral_varimax'")
+    dtype = resolve_precision(precision)
     X64 = _validate_args(X, K, a, c1, c2, a_sigma, b_sigma, tol,
-                         max_iter, v0, chunk_size, audit_every)
+                         max_iter, chunk_size, audit_every)
+    tol_array = jnp.asarray(tol, dtype=dtype)
+    if max_iter is None and not bool(jnp.isfinite(tol_array) & (tol_array > 0)):
+        raise ValueError(
+            f"max_iter=None requires tol to remain positive and finite in {dtype.name}"
+        )
     if drop_budget is None:
         drop_budget = 0.5
     try:
@@ -448,41 +465,38 @@ def CAVI(
         raise ValueError(
             f"drop_budget must be a nonnegative finite number, got {drop_budget}"
         )
-    if r is not None and (
-        isinstance(r, (bool, np.bool_))
-        or not isinstance(r, (int, np.integer))
-        or int(r) < 1
-    ):
-        raise ValueError(f"r must be a positive integer or None, got {r!r}")
-
-    # Center in float64 on the host and cast once to float32.  Casting the
+    # Center in float64 on the host and cast once to the inference dtype. Casting the
     # uncentered matrix first would round entries at the scale of the column
     # offset, destroying the within-column variation (see BaseBFM._prepare_X).
     if center:
         X64 = X64 - X64.mean(axis=0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
-        X = jnp.asarray(X64, dtype=_F32)
+        X = jnp.asarray(X64, dtype=dtype)
     if not bool(jnp.all(jnp.isfinite(X))):
         raise ValueError(
-            "the (centered) X matrix overflows the float32 coercion; "
-            "rescale the data (the estimation model is single precision)"
+            f"the (centered) X matrix overflows the {dtype.name} coercion; "
+            "rescale the data"
         )
     n, p = X.shape
     K = int(K)
 
-    shape_k, kneg_c2 = column_weights(p, K, a, c1, c2)
+    shape_k, kneg_c2 = column_weights(p, K, a, c1, c2, dtype=dtype)
     const = elbo_const(n, p, K, a, c1, c2, a_sigma, b_sigma)
 
     # --- initialization ------------------------------------------------
+    t_initialization = time.perf_counter()
     if initial_state is None:
-        state = initialization(
-            X, K, a_sigma, b_sigma, shape_k, kneg_c2, r=r, v0=v0
+        state = spectral_initialization(
+            X, K, a_sigma, b_sigma, shape_k, kneg_c2, seed=init_seed,
+            precision=precision, varimax=(init_method == "spectral_varimax"),
         )
+        initialization_method = init_method
     else:
         state = _normalize_warm_start(
             X, initial_state, K, a_sigma, b_sigma, shape_k, kneg_c2
         )
+        initialization_method = "provided"
     if not bool(state["ok"]):
         raise FloatingPointError(
             "initialization produced a numerically invalid state "
@@ -495,18 +509,22 @@ def CAVI(
          "c": state["c"]},
         0,
     )
+    # Host audits synchronize all initialized arrays before ending the timer.
+    initialization_sec = time.perf_counter() - t_initialization
+    initialization_info = dict(state.get("initialization_info", {}))
+    initialization_info.setdefault("method", initialization_method)
+    initialization_info.setdefault("precision", precision)
 
     carry = _make_carry(state)
     inp = Inputs(
         X=X,
         shape_k=shape_k,
         kneg_c2=kneg_c2,
-        alpha_n=jnp.asarray(a_sigma + n / 2.0, dtype=_F32),
-        a_sigma=jnp.asarray(a_sigma, dtype=_F32),
-        b_sigma=jnp.asarray(b_sigma, dtype=_F32),
-        tol=jnp.asarray(tol, dtype=_F32),
-        drop_budget=jnp.asarray(drop_budget, dtype=_F32),
-        max_iter=jnp.int32(max_iter),
+        alpha_n=jnp.asarray(a_sigma + n / 2.0, dtype=dtype),
+        a_sigma=jnp.asarray(a_sigma, dtype=dtype),
+        b_sigma=jnp.asarray(b_sigma, dtype=dtype),
+        tol=tol_array,
+        drop_budget=jnp.asarray(drop_budget, dtype=dtype),
     )
 
     history = [const + float(state["elbo_var"])]
@@ -523,13 +541,13 @@ def CAVI(
         )
     execution_mode = "command_buffer" if use_graph else ("while_loop" if jit else "eager")
 
-    def _raise_on_error(c: Carry) -> None:
+    def _raise_on_error(c: Carry, attempted_sweep: int) -> None:
         err = int(c.error)
         if err != 0:
             msg = _ERROR_MESSAGES.get(err, f"unknown numerical error {err}")
             mod = MODULE_NAMES.get(int(c.error_module), "?")
             raise FloatingPointError(
-                f"{msg} at sweep {int(c.error_t)} (module: {mod}); the run "
+                f"{msg} at sweep {attempted_sweep} (module: {mod}); the run "
                 f"is numerically contaminated and must be discarded."
             )
 
@@ -540,65 +558,47 @@ def CAVI(
     # --- CAVI sweeps ----------------------------------------------------
     compile_sec = 0.0
     last_audit = 0
-    if not jit:
-        # eager debug path: one host-visible sweep at a time
-        t_start = time.perf_counter()
-        while (
-            int(carry.t) < max_iter
-            and not bool(carry.converged)
-            and int(carry.error) == 0
-        ):
-            carry = sweep(carry, inp)
-            _raise_on_error(carry)
-            history.append(const + float(carry.prev_elbo))
-            if verbose:
-                v, prev = history[-1], history[-2]
-                print(f"[CAVI] sweep {len(history) - 1:4d}  ELBO = {v:.6f}  "
-                      f"d = {v - prev:.3e}")
-                if v < prev - drop_budget:
-                    print("[CAVI] warning: ELBO decreased (numerical issue)")
-            if audit_every and int(carry.t) - last_audit >= audit_every:
-                _audit_host(_state_arrays(carry), int(carry.t))
-                last_audit = int(carry.t)
-        runtime_sec = time.perf_counter() - t_start
-    else:
+    if jit:
         run_chunk = make_run_chunk(graph=use_graph)
-        buf = jnp.zeros((chunk_size,), dtype=_F32)
+        buf = jnp.zeros((chunk_size,), dtype=dtype)
         # AOT compilation (not timed): one executable, reused by every
         # chunk including the shorter tail (dynamic count).
         t_compile = time.perf_counter()
-        exe = run_chunk.lower(carry, buf, inp).compile()
+        exe = run_chunk.lower(carry, buf, inp, jnp.int32(chunk_size)).compile()
         compile_sec = time.perf_counter() - t_compile
 
-        t_start = time.perf_counter()
-        while (
-            int(carry.t) < max_iter
-            and not bool(carry.converged)
-            and int(carry.error) == 0
-        ):
-            carry, buf, used = exe(carry, buf, inp)
+    # Only the count within a chunk is an int32 on device. The cumulative
+    # sweep number stays a Python integer, also for uncapped runs.
+    n_iter = 0
+    t_start = time.perf_counter()
+    while (max_iter is None or n_iter < max_iter) and not bool(carry.converged):
+        if jit:
+            steps = chunk_size if max_iter is None else min(chunk_size, max_iter - n_iter)
+            carry, buf, used = exe(carry, buf, inp, jnp.int32(steps))
             used = int(used)
-            _raise_on_error(carry)
-            if used:
-                vals = np.asarray(buf[:used]).astype(np.float64) + const
-                base = len(history) - 1
-                history.extend(vals.tolist())
-                if verbose:
-                    for k, v in enumerate(vals):
-                        prev = history[base + k]
-                        print(f"[CAVI] sweep {base + k + 1:4d}  ELBO = {v:.6f}  "
-                              f"d = {v - prev:.3e}")
-                        if v < prev - drop_budget:
-                            print("[CAVI] warning: ELBO decreased (numerical issue)")
-            if audit_every and int(carry.t) - last_audit >= audit_every:
-                _audit_host(_state_arrays(carry), int(carry.t))
-                last_audit = int(carry.t)
-        runtime_sec = time.perf_counter() - t_start
+            _raise_on_error(carry, n_iter + used + 1)
+            vals = (np.asarray(buf[:used]).astype(np.float64) + const).tolist()
+        else:
+            carry = sweep(carry, inp)
+            _raise_on_error(carry, n_iter + 1)
+            vals = [const + float(carry.prev_elbo)]
+        history.extend(vals)
+        if verbose:
+            for k, v in enumerate(vals, start=n_iter + 1):
+                prev = history[k - 1]
+                print(f"[CAVI] sweep {k:4d}  ELBO = {v:.6f}  d = {v - prev:.3e}")
+                if v < prev - drop_budget:
+                    print("[CAVI] warning: ELBO decreased (numerical issue)")
+        n_iter += len(vals)
+        if audit_every and n_iter - last_audit >= audit_every:
+            _audit_host(_state_arrays(carry), n_iter)
+            last_audit = n_iter
+    runtime_sec = time.perf_counter() - t_start
 
     stop_reason = "tol" if bool(carry.converged) else "max_iter"
 
     # mandatory final audit (covers runs that end before any periodic point)
-    _audit_host(_state_arrays(carry), int(carry.t))
+    _audit_host(_state_arrays(carry), n_iter)
 
     c = mean_inverse(inp.alpha_n, carry.beta)
     out = {
@@ -612,7 +612,7 @@ def CAVI(
         "rho": carry.rho,
         "m": carry.m,
         "elbo": history,
-        "n_iter": int(carry.t),
+        "n_iter": n_iter,
         "converged": bool(carry.converged),
         "stop_reason": stop_reason,
         "execution_mode": execution_mode,
@@ -620,6 +620,13 @@ def CAVI(
         "device": str(jax.devices()[0]),
         "compile_sec": compile_sec,
         "runtime_sec": runtime_sec,
+        "initialization_sec": initialization_sec,
+        "initialization_method": initialization_method,
+        "initialization_info": initialization_info,
+        "precision": precision,
+        "dtype": str(carry.mu.dtype),
+        "input_dtype": str(X.dtype),
+        "elbo_dtype": str(carry.prev_elbo.dtype),
     }
 
     if plot:

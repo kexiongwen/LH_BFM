@@ -3,7 +3,7 @@
 :class:`BaseBFM` holds the hyperparameters shared by the Gibbs sampler
 (:class:`bfm.GibbsBFM`) and the CAVI approximation (:class:`bfm.CaviBFM`),
 and implements the common preprocessing (validation, float64 column
-centering followed by the float32 coercion) and the common fitted
+centering followed by the estimator's inference dtype) and the common fitted
 accessors (``B_hat_``, ``sigma2_hat_``, ``Sigma_``, ``n_factors``).
 
 The model is the latent factor model of the paper "Bayesian
@@ -34,7 +34,7 @@ class BaseBFM:
     a, c1, c2 : float
         Hyperparameters of the L_{1/2} prior's lambda hyperprior
         Ga(a + k^{c1}, k^{-c2}); all must be > 0.  The defaults a = 10,
-        c1 = 2.0, c2 = 1.0 satisfy the theory conditions a >= 4 and
+        c1 = 2.3, c2 = 1.0 satisfy the theory conditions a >= 4 and
         q = 4(c1 + c2) > 1.
     a_sigma, b_sigma : float
         Inverse-gamma hyperparameters of sigma_j^2 ~ IG(a_sigma,
@@ -42,7 +42,7 @@ class BaseBFM:
     center : bool, default True
         Subtract the column means of X before fitting (the model has
         zero mean).  The means are computed and subtracted in float64
-        (host side) before the single-precision coercion, so large
+        (host side) before inference-dtype coercion, so large
         column offsets cannot quantize away the within-column variation.
         The column means are stored in ``x_offset_`` as a float64 array.
 
@@ -58,7 +58,7 @@ class BaseBFM:
         self,
         K,
         a=10.0,
-        c1=2.0,
+        c1=2.3,
         c2=1.0,
         a_sigma=1.0,
         b_sigma=1.0,
@@ -87,9 +87,9 @@ class BaseBFM:
     def fit(self, X):
         """Fit the model to the data matrix X and return ``self``.
 
-        X is validated, coerced to float32 and column-centered (unless
+        X is validated, column-centered (unless
         ``center=False``); the concrete algorithm then runs in
-        :meth:`_fit_arrays`.  Results of a previous :meth:`align_factors`
+        :meth:`_fit_arrays` in its selected precision. Results of a previous :meth:`align_factors`
         call are discarded only after the new fit succeeds: a fit that
         raises leaves the estimator exactly as it was.
         """
@@ -123,16 +123,22 @@ class BaseBFM:
     # shared preprocessing
     # ------------------------------------------------------------------
 
+    def _inference_dtype(self):
+        """Default inference precision; CAVI overrides this for its opt-in."""
+        return np.dtype(np.float32)
+
     def _prepare_X(self, X):
-        """Validate, center in float64, then coerce the result to float32.
+        """Validate, center in float64, then coerce to the inference dtype.
 
         The column means are computed and subtracted in float64 (on the
         host) *before* the float32 cast.  Casting an uncentered matrix
         first would round each entry at the scale of the column offset
         (e.g. ULP ~ 0.06 at 1e6 in float32), silently destroying the
         within-column variation that the model is supposed to explain.
-        ``x_offset_`` is stored as a float64 array.
+        ``x_offset_`` is stored as a float64 array. Gibbs remains float32;
+        CAVI can explicitly select float64 through its dtype hook.
         """
+        dtype = self._inference_dtype()
         try:
             X64 = np.asarray(X, dtype=np.float64)
         except (TypeError, ValueError, OverflowError) as exc:
@@ -155,14 +161,14 @@ class BaseBFM:
             offset = np.zeros(X64.shape[1], dtype=np.float64)
             Xc = X64
         with np.errstate(over="ignore", invalid="ignore"):
-            X32 = Xc.astype(np.float32)
-        if not np.isfinite(X32).all():
+            X_prepared = Xc.astype(dtype)
+        if not np.isfinite(X_prepared).all():
             raise ValueError(
-                "the (centered) X matrix overflows the float32 coercion; "
-                "rescale the data (the estimation model is single precision)"
+                f"the (centered) X matrix overflows the {dtype.name} coercion; "
+                "rescale the data"
             )
         self.x_offset_ = offset.astype(np.float64, copy=False)
-        return X32
+        return X_prepared
 
     # ------------------------------------------------------------------
     # fitted accessors

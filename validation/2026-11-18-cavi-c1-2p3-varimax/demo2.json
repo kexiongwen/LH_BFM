@@ -1,0 +1,219 @@
+{
+  "n": 100,
+  "p": 1000,
+  "K": 50,
+  "true_factors": 5,
+  "data_seed": 12,
+  "input_arrays_sha256": {
+    "X": "a7dba93aae17b27d38980c86bd0df64501cb61e4ac327bfe073c46ab6e8ffb57",
+    "B_true": "46551c9d1c260885fe1ac8c102775542ce4984d9e63c4aded169040a770bfecd",
+    "sigma2_true": "3a57be97d178a04bd4dfd719a833793103be6a347cf91b6fef2e99b546623a3a"
+  },
+  "configuration": {
+    "K": 50,
+    "a": 10.0,
+    "c1": 2.3,
+    "c2": 1.0,
+    "a_sigma": 1.0,
+    "b_sigma": 1.0,
+    "center": true,
+    "init_method": "spectral_varimax",
+    "init_seed": 2026,
+    "precision": "float32",
+    "max_iter": 1000,
+    "tol": 0.1,
+    "drop_budget": 0.5,
+    "jit": true,
+    "chunk_size": 50,
+    "graph": false,
+    "audit_every": 50
+  },
+  "initialization": {
+    "method": "spectral_varimax",
+    "precision": "float32",
+    "seed": 2026,
+    "numerical_rank": 99,
+    "initial_rank": 50,
+    "tail_columns": 0,
+    "rank_tolerance": 0.019068367484053994,
+    "rank_precision": "float32",
+    "svd_precision": "float64",
+    "noise_floor_fraction": 0.05,
+    "tail_energy_fraction": 0.01,
+    "covariance_scale": "noise_seed / n",
+    "noise_seed_min": 0.028776070103049278,
+    "noise_seed_max": 0.3960874378681183,
+    "column_permutation": [
+      0,
+      3,
+      2,
+      4,
+      1,
+      48,
+      5,
+      7,
+      19,
+      29,
+      14,
+      18,
+      8,
+      36,
+      47,
+      28,
+      35,
+      30,
+      24,
+      26,
+      49,
+      27,
+      11,
+      45,
+      9,
+      32,
+      22,
+      23,
+      44,
+      40,
+      42,
+      39,
+      6,
+      21,
+      31,
+      20,
+      46,
+      12,
+      17,
+      38,
+      13,
+      34,
+      15,
+      10,
+      37,
+      33,
+      25,
+      43,
+      16,
+      41
+    ],
+    "varimax_n_iter": 55
+  },
+  "initialization_method": "spectral_varimax",
+  "n_iter": 470,
+  "stop_reason": "tol",
+  "initial_elbo": -1196461.7100662366,
+  "final_elbo": -143139.71006623656,
+  "final_increment": 0.0625,
+  "active_columns": {
+    "raw": {
+      "credible": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "linf": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    "aligned": {
+      "credible": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "linf": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    }
+  },
+  "counts": {
+    "raw": {
+      "credible": 7,
+      "linf": 7
+    },
+    "aligned": {
+      "credible": 7,
+      "linf": 7
+    }
+  },
+  "credible_level": 0.95,
+  "linf_threshold": 0.1,
+  "covariance_relative_frobenius": 0.27501006513824705,
+  "noise_mae": 0.062483014895894515,
+  "metrics": {
+    "covariance_posterior_mean_relative_frobenius": 0.27501006513824705,
+    "covariance_posterior_mean_frobenius": 74.64344254631038,
+    "noise_mae": 0.062483014895894515
+  },
+  "backend": "cpu",
+  "dtype": "float32",
+  "state_sha256": {
+    "mu_": "1bbc47a1e65a4577580c071b25e462ee2257e17301eccd29b2280fb42be79feb",
+    "V_": "8dc10c498fb14655a8adab66a0fe85c4538a3d1a5fe788c88e16e91fb3e123d1",
+    "W_": "a27dfccf340ed6f606b081ed22a4ceda9229bede37f66bf5b7a5961c0e6255e0",
+    "Phi_": "46d25ad8d54def81aaf47d7d2588f7c3c5b5342ed9e7947b13ebd5fa080a5799",
+    "beta_": "eb5697b74d8afac13859e7b84880a449f33ae8895973f3d530be4bdfa23f20cd",
+    "rho_": "23c668fac22c4d93b4387534f38e679152ead27e3a073fb1cb51ff38426f7443",
+    "m_": "76e3c72be6efb16a29a1d43621f2672a84c2752982febf046b6b84b01dac4d48",
+    "c_": "fa4066c71fdb70b873159b8e2027f59a98e901e8658e8d432f4171e47ffe9d04",
+    "elbo_": "b4af6e8ba9394bcf6144e688b91c4bc9e1758bbe914b21ee58706fbd8571771c"
+  },
+  "timing_seconds": {
+    "fit_wall": 40.30025745800049,
+    "initialization": 2.4573775839999143,
+    "compilation": 1.554172957999981,
+    "loop": 36.22887774999981
+  },
+  "gs_control": {
+    "c1": 2.3,
+    "init_method": "spectral_varimax",
+    "draw_sha256": {
+      "loadings": "e53d477c04ecc2338677be3a35e66990a18db02b18140eac1103af334cc1b2aa",
+      "noise": "d4ebe65bd1630a9fb01886cba1a052a12e2030b2ca6df40822fc5c82b15f3ec8"
+    },
+    "counts": [
+      5,
+      5
+    ]
+  },
+  "checks": {
+    "input_arrays_identical": true,
+    "gs_draws_identical": true,
+    "same_cavi_config_as_plain_baseline_except_init": true,
+    "selection_reconstructed": true,
+    "analytic_covariance_matches": true,
+    "finite_state_and_complete_elbo": true
+  },
+  "demo": "demo2",
+  "started_at": "2026-11-18T04:28:15.898081+00:00",
+  "finished_at": "2026-11-18T04:34:46.216353+00:00",
+  "notebook_wall_seconds": 390.31693520800036,
+  "executed_code_cells": 19,
+  "figures": 12,
+  "status": "completed",
+  "notebook_sha256": "125c5553ab1475b4e9041086868a4f75b35af5b8627c5fa78c75bfbc2c16a4e9",
+  "previous_notebook_sha256": "bc25de0764c5c0fc95b07c03cf1f25a30e1d4774e002dfa52e2497c871f74e6c",
+  "input_archive_sha256": "e66ae193764cc2b2e4df170d9baccaaef2c9a0474630ff89dcb015abfe8d2598",
+  "input_archive": "validation/2026-11-18-spectral-demos/run1/demo2/inputs.npz",
+  "plain_spectral_reference": "validation/2026-11-18-cavi-c1-2p3/demo2.json",
+  "gibbs_reference": "validation/2026-11-18-gs-c1-2p3/demo2.json"
+}

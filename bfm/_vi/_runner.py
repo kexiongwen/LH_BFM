@@ -10,7 +10,7 @@ Three execution levels (migration plan section 9.2):
    ``__all__``) and not used by the driver, which only runs the
    chunked runner.
 3. :func:`make_run_chunk` -- a compiled lax.while_loop advancing the
-   state until the chunk is full, the global max_iter is reached,
+   state until the requested chunk length is reached,
    convergence is detected, or a numerical failure is flagged.
 
 Device-side diagnostics (plan section 10, review findings F2/F3):
@@ -18,8 +18,8 @@ each sweep checks the factorization validity flags (eta and B), the
 finiteness of rho / m / beta / the ELBO variable part, and that the
 ELBO did not drop by more than the jitter budget.  A failing sweep
 does NOT overwrite the last valid state and is NOT counted in the
-chunk's ELBO history; it only records (error, error_t, error_module),
-which the host turns into an exception at the chunk boundary.
+chunk's ELBO history. The host uses the successful sweep count and
+the error flags to report the failing sweep and module.
 
 The chunk runner writes the variable-part ELBO of each successful
 sweep into a fixed-length device buffer with a dynamic count, so tail
@@ -66,12 +66,12 @@ def sweep(carry: Carry, inp: Inputs) -> Carry:
     consistent
     with the current (W, Phi, mu, V) at the ELBO evaluation point,
     making the evaluated variable part the exact variable part of the
-    current state (non-decreasing up to float32 jitter).
+    current state (non-decreasing up to floating-point jitter).
 
     On numerical failure the returned carry keeps the OLD variational
     state (the failing candidate does not overwrite it) and only the
-    error fields are set; t and prev_elbo stay at the last valid
-    sweep.  The while_loop's cond then stops the chunk.
+    error fields are set and prev_elbo stays at the last valid sweep.
+    The while_loop's cond then stops the chunk.
     """
     c = inp.alpha_n / carry.beta
     W, Phi, S, elbo_eta, ok_eta = update_eta(inp.X, carry.mu, carry.V, c)
@@ -112,7 +112,6 @@ def sweep(carry: Carry, inp: Inputs) -> Carry:
         + jnp.where(chol_ok & fin_ok & ~drop_ok, 5, 0)
     ).astype(jnp.int32)
 
-    new_t = carry.t + jnp.int32(1)
     # The independent drop check must also pass before accepting convergence.
     converged = jnp.abs(delta) < inp.tol
 
@@ -129,10 +128,8 @@ def sweep(carry: Carry, inp: Inputs) -> Carry:
         Phi=pick(Phi, carry.Phi),
         m=pick(m, carry.m),
         prev_elbo=pick(elbo_var, carry.prev_elbo),
-        t=pick(new_t, carry.t),
         converged=pick(converged, carry.converged),
         error=jnp.where(ok, carry.error, error),
-        error_t=jnp.where(ok, carry.error_t, new_t),
         error_module=jnp.where(ok, carry.error_module, module),
     )
 
@@ -141,30 +138,27 @@ def sweep(carry: Carry, inp: Inputs) -> Carry:
 sweep_jit = jax.jit(sweep)
 
 
-def _run_chunk_impl(carry: Carry, buf: jax.Array, inp: Inputs):
+def _run_chunk_impl(carry: Carry, buf: jax.Array, inp: Inputs, steps: jax.Array):
     """Advance over one chunk of sweeps (compiled lax.while_loop).
 
-    Stops at the first of: chunk full (``i == len(buf)``), a numerical
-    error flag, convergence, or the global max_iter.  Only successful
+    Runs at most ``steps`` sweeps, stopping early on a numerical
+    error flag or convergence. Only successful
     sweeps are written into ``buf`` (their variable-part ELBO) and
     counted; the returned count is the valid prefix length.
     """
-    chunk_len = buf.shape[0]
-
     def cond(cs):
         c, b, i = cs
         return (
-            (i < chunk_len)
+            (i < steps)
             & (c.error == ERR_NONE)
             & (~c.converged)
-            & (c.t < inp.max_iter)
         )
 
     def body(cs):
         c, b, i = cs
         c = sweep(c, inp)
         good = c.error == ERR_NONE
-        b = b.at[i].set(jnp.where(good, c.prev_elbo, jnp.float32(0.0)))
+        b = b.at[i].set(jnp.where(good, c.prev_elbo, jnp.zeros_like(c.prev_elbo)))
         i = i + good.astype(jnp.int32)
         return c, b, i
 

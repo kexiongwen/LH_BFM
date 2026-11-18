@@ -1,4 +1,4 @@
-"""Latent factor scores eta (JAX, single precision).
+"""Latent factor scores eta (JAX, input-selected floating precision).
 
 Variational factor for the latent factors:
 
