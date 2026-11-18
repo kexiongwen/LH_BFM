@@ -1,0 +1,2 @@
+subset (800, 5000, 50) from 2500 index0=0 index1=2499 mem=2.59
+wrote /workspace/validation/2026-11-18-demo2-n500-p5000/gibbs_alignment.json status=1 stop=converged_threshold r=5 sec=98.1 mem=3.66
